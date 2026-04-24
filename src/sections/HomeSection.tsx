@@ -371,13 +371,13 @@ export function HomeSection({
               <div className="min-h-0 overflow-auto rounded-[1.5rem] bg-stone-100 p-4">
                 <div data-receipt-print className="receipt-paper mx-auto lg:mx-0">
                   <div className="text-center">
-                    <p className="text-base font-black uppercase">Ceeseburgers</p>
-                    <p className="mt-1 text-[11px]">{new Date().toLocaleString("es-CL")}</p>
+                    <img src="/receipt-logo.png" alt="Ceese Burger's" className="receipt-logo" />
+                    <p className="mt-1 text-xs font-bold">{new Date().toLocaleString("es-CL")}</p>
                   </div>
 
                   <div className="my-3 border-t border-dashed border-black" />
 
-                  <div className="receipt-cut space-y-1 text-[11px]">
+                  <div className="receipt-cut space-y-1 text-xs font-semibold">
                     {orderName.trim() ? <p>Nombre: {orderName.trim()}</p> : null}
                     <p>Pago: Pendiente</p>
                     <p>Entrega: {deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
@@ -400,7 +400,7 @@ export function HomeSection({
                             <span className="shrink-0 whitespace-nowrap">{formatCurrency(item.price * item.quantity)}</span>
                           </div>
                           {notes.length > 0 ? (
-                            <div className="mt-1 space-y-0.5 text-[10px] leading-4">
+                            <div className="mt-1 space-y-0.5 text-[11px] font-semibold leading-4">
                               {notes.map((note) => (
                                 <p key={note}>{note}</p>
                               ))}

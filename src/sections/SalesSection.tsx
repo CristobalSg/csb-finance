@@ -107,13 +107,13 @@ export function SalesSection({
       {receiptSale ? (
         <div data-receipt-print className="receipt-paper pointer-events-none fixed left-[-9999px] top-0">
           <div className="text-center">
-            <p className="text-base font-black uppercase">Ceeseburgers</p>
-            <p className="mt-1 text-[11px]">{new Date(receiptSale.createdAt).toLocaleString("es-CL")}</p>
+            <img src="/receipt-logo.png" alt="Ceese Burger's" className="receipt-logo" />
+            <p className="mt-1 text-xs font-bold">{new Date(receiptSale.createdAt).toLocaleString("es-CL")}</p>
           </div>
 
           <div className="my-3 border-t border-dashed border-black" />
 
-          <div className="receipt-cut space-y-1 text-[11px]">
+          <div className="receipt-cut space-y-1 text-xs font-semibold">
             {receiptSale.client.trim() ? <p>Nombre: {receiptSale.client.trim()}</p> : null}
             <p>Pago: {saleStatusLabels[receiptSale.status]}</p>
             <p>Entrega: {receiptSale.deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
@@ -142,7 +142,7 @@ export function SalesSection({
                     <span className="shrink-0 whitespace-nowrap">{formatCurrency(item.total)}</span>
                   </div>
                   {notes.length > 0 ? (
-                    <div className="mt-1 space-y-0.5 text-[10px] leading-4">
+                    <div className="mt-1 space-y-0.5 text-[11px] font-semibold leading-4">
                       {notes.map((note) => (
                         <p key={note}>{note}</p>
                       ))}
