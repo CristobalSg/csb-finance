@@ -12,12 +12,17 @@ type CartItem = {
   name: string;
   price: number;
   quantity: number;
-  drink?: string;
-  sauce?: string;
-  removedIngredients: string[];
+  customizations: CartItemCustomization[];
   drinkOptions?: string[];
   sauceOptions?: string[];
   removableIngredients?: string[];
+};
+
+type CartItemCustomization = {
+  id: string;
+  drink?: string;
+  sauce?: string;
+  removedIngredients: string[];
 };
 
 export function HomeSection({
@@ -52,6 +57,13 @@ export function HomeSection({
     [cartItems],
   );
 
+  const createCustomization = (item: OrderMenuItem | CartItem): CartItemCustomization => ({
+    id: crypto.randomUUID(),
+    drink: item.drinkOptions?.[0],
+    sauce: item.sauceOptions?.[0],
+    removedIngredients: [],
+  });
+
   const addItem = (item: OrderMenuItem) => {
     setCartItems((current) => [
       ...current,
@@ -60,9 +72,7 @@ export function HomeSection({
         name: item.name,
         price: item.price,
         quantity: 1,
-        drink: item.drinkOptions?.[0],
-        sauce: item.sauceOptions?.[0],
-        removedIngredients: [],
+        customizations: [createCustomization(item)],
         drinkOptions: item.drinkOptions,
         sauceOptions: item.sauceOptions,
         removableIngredients: item.removableIngredients,
@@ -73,61 +83,103 @@ export function HomeSection({
   const updateQuantity = (id: string, quantity: number) => {
     setCartItems((current) =>
       current
-        .map((item) => (item.id === id ? { ...item, quantity } : item))
+        .map((item) => {
+          if (item.id !== id) {
+            return item;
+          }
+
+          const customizations =
+            quantity > item.customizations.length
+              ? [
+                  ...item.customizations,
+                  ...Array.from({ length: quantity - item.customizations.length }, () => createCustomization(item)),
+                ]
+              : item.customizations.slice(0, quantity);
+
+          return { ...item, quantity, customizations };
+        })
         .filter((item) => item.quantity > 0),
     );
   };
 
-  const updateCartItem = (id: string, updates: Partial<CartItem>) => {
-    setCartItems((current) => current.map((item) => (item.id === id ? { ...item, ...updates } : item)));
+  const updateCartItemCustomization = (itemId: string, customizationId: string, updates: Partial<CartItemCustomization>) => {
+    setCartItems((current) =>
+      current.map((item) =>
+        item.id === itemId
+          ? {
+              ...item,
+              customizations: item.customizations.map((customization) =>
+                customization.id === customizationId ? { ...customization, ...updates } : customization,
+              ),
+            }
+          : item,
+      ),
+    );
   };
 
-  const toggleRemovedIngredient = (id: string, ingredient: string) => {
+  const toggleRemovedIngredient = (itemId: string, customizationId: string, ingredient: string) => {
     setCartItems((current) =>
       current.map((item) => {
-        if (item.id !== id) {
+        if (item.id !== itemId) {
           return item;
         }
 
-        const shouldRemove = !item.removedIngredients.includes(ingredient);
-
         return {
           ...item,
-          removedIngredients: shouldRemove
-            ? [...item.removedIngredients, ingredient]
-            : item.removedIngredients.filter((currentIngredient) => currentIngredient !== ingredient),
+          customizations: item.customizations.map((customization) => {
+            if (customization.id !== customizationId) {
+              return customization;
+            }
+
+            const shouldRemove = !customization.removedIngredients.includes(ingredient);
+
+            return {
+              ...customization,
+              removedIngredients: shouldRemove
+                ? [...customization.removedIngredients, ingredient]
+                : customization.removedIngredients.filter((currentIngredient) => currentIngredient !== ingredient),
+            };
+          }),
         };
       }),
     );
   };
 
-  const getCartItemNotes = (item: CartItem) => {
+  const getCustomizationNotes = (customization: CartItemCustomization) => {
     const notes = [];
 
-    if (item.drink) {
-      notes.push(`Bebida: ${item.drink}`);
+    if (customization.drink) {
+      notes.push(`Bebida: ${customization.drink}`);
     }
 
-    if (item.sauce) {
-      notes.push(`Salsa: ${item.sauce}`);
+    if (customization.sauce) {
+      notes.push(`Salsa: ${customization.sauce}`);
     }
 
-    if (item.removedIngredients.length > 0) {
-      notes.push(`Sin: ${item.removedIngredients.join(", ")}`);
+    if (customization.removedIngredients.length > 0) {
+      notes.push(`Sin: ${customization.removedIngredients.join(", ")}`);
     }
 
     return notes;
   };
 
+  const receiptItems = cartItems.flatMap((item) =>
+    item.customizations.map((customization, index) => ({
+      ...item,
+      customization,
+      unitLabel: item.quantity > 1 ? `${item.name} #${index + 1}` : item.name,
+    })),
+  );
+
   const buildOrderItems = (): SaleOrderItem[] =>
-    cartItems.map((item) => ({
+    receiptItems.map((item) => ({
       name: item.name,
-      quantity: item.quantity,
+      quantity: 1,
       unitPrice: item.price,
-      total: item.price * item.quantity,
-      drink: item.drink,
-      sauce: item.sauce,
-      removedIngredients: item.removedIngredients,
+      total: item.price,
+      drink: item.customization.drink,
+      sauce: item.customization.sauce,
+      removedIngredients: item.customization.removedIngredients,
     }));
 
   const handleConfirmPrint = async () => {
@@ -280,65 +332,84 @@ export function HomeSection({
 
                     {item.drinkOptions || item.sauceOptions || item.removableIngredients ? (
                       <div className="mt-4 space-y-3 border-t border-rose-100 pt-4">
-                        {item.drinkOptions ? (
-                          <label className="block">
-                            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Bebida</span>
-                            <select
-                              value={item.drink}
-                              onChange={(event) => updateCartItem(item.id, { drink: event.target.value })}
-                              className="mt-2 w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
-                            >
-                              {item.drinkOptions.map((drink) => (
-                                <option key={drink} value={drink}>
-                                  {drink}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        ) : null}
+                        {item.customizations.map((customization, index) => (
+                          <div
+                            key={customization.id}
+                            className={item.quantity > 1 ? "rounded-[1rem] border border-rose-100 bg-rose-50/40 p-3" : ""}
+                          >
+                            {item.quantity > 1 ? (
+                              <p className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-rose-500">
+                                Unidad {index + 1}
+                              </p>
+                            ) : null}
 
-                        {item.sauceOptions ? (
-                          <label className="block">
-                            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Salsa</span>
-                            <select
-                              value={item.sauce}
-                              onChange={(event) => updateCartItem(item.id, { sauce: event.target.value })}
-                              className="mt-2 w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
-                            >
-                              {item.sauceOptions.map((sauce) => (
-                                <option key={sauce} value={sauce}>
-                                  {sauce}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        ) : null}
-
-                        {item.removableIngredients ? (
-                          <div>
-                            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Sin ingredientes</p>
-                            <div className="mt-2 flex flex-wrap gap-2">
-                              {item.removableIngredients.map((ingredient) => {
-                                const isRemoved = item.removedIngredients.includes(ingredient);
-
-                                return (
-                                  <button
-                                    key={ingredient}
-                                    type="button"
-                                    onClick={() => toggleRemovedIngredient(item.id, ingredient)}
-                                    className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                                      isRemoved
-                                        ? "border-red-200 bg-red-50 text-red-700"
-                                        : "border-rose-200 bg-white text-rose-600"
-                                    }`}
+                            <div className="space-y-3">
+                              {item.drinkOptions ? (
+                                <label className="block">
+                                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Bebida</span>
+                                  <select
+                                    value={customization.drink}
+                                    onChange={(event) =>
+                                      updateCartItemCustomization(item.id, customization.id, { drink: event.target.value })
+                                    }
+                                    className="mt-2 w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
                                   >
-                                    {ingredient}
-                                  </button>
-                                );
-                              })}
+                                    {item.drinkOptions.map((drink) => (
+                                      <option key={drink} value={drink}>
+                                        {drink}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              ) : null}
+
+                              {item.sauceOptions ? (
+                                <label className="block">
+                                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Salsa</span>
+                                  <select
+                                    value={customization.sauce}
+                                    onChange={(event) =>
+                                      updateCartItemCustomization(item.id, customization.id, { sauce: event.target.value })
+                                    }
+                                    className="mt-2 w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                                  >
+                                    {item.sauceOptions.map((sauce) => (
+                                      <option key={sauce} value={sauce}>
+                                        {sauce}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </label>
+                              ) : null}
+
+                              {item.removableIngredients ? (
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Sin ingredientes</p>
+                                  <div className="mt-2 flex flex-wrap gap-2">
+                                    {item.removableIngredients.map((ingredient) => {
+                                      const isRemoved = customization.removedIngredients.includes(ingredient);
+
+                                      return (
+                                        <button
+                                          key={ingredient}
+                                          type="button"
+                                          onClick={() => toggleRemovedIngredient(item.id, customization.id, ingredient)}
+                                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                                            isRemoved
+                                              ? "border-red-200 bg-red-50 text-red-700"
+                                              : "border-rose-200 bg-white text-rose-600"
+                                          }`}
+                                        >
+                                          {ingredient}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : null}
                             </div>
                           </div>
-                        ) : null}
+                        ))}
                       </div>
                     ) : null}
                   </article>
@@ -388,16 +459,14 @@ export function HomeSection({
                   <div className="my-3 border-t border-dashed border-black" />
 
                   <div className="space-y-3">
-                    {cartItems.map((item) => {
-                      const notes = getCartItemNotes(item);
+                    {receiptItems.map((item) => {
+                      const notes = getCustomizationNotes(item.customization);
 
                       return (
-                        <div key={item.id} className="receipt-cut">
+                        <div key={`${item.id}-${item.customization.id}`} className="receipt-cut">
                           <div className="flex justify-between gap-2 text-xs font-bold">
-                            <span className="min-w-0 break-words">
-                              {item.quantity} x {item.name}
-                            </span>
-                            <span className="shrink-0 whitespace-nowrap">{formatCurrency(item.price * item.quantity)}</span>
+                            <span className="min-w-0 break-words">1 x {item.unitLabel}</span>
+                            <span className="shrink-0 whitespace-nowrap">{formatCurrency(item.price)}</span>
                           </div>
                           {notes.length > 0 ? (
                             <div className="mt-1 space-y-0.5 text-[11px] font-semibold leading-4">
@@ -484,10 +553,10 @@ export function HomeSection({
                   <div className="rounded-[1.25rem] bg-rose-50/60 p-4">
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Resumen</p>
                     <div className="mt-3 space-y-2 text-sm text-rose-800">
-                      {cartItems.map((item) => (
-                        <div key={item.id} className="flex justify-between gap-3">
-                          <span>{item.quantity} x {item.name}</span>
-                          <span className="font-bold">{formatCurrency(item.price * item.quantity)}</span>
+                      {receiptItems.map((item) => (
+                        <div key={`${item.id}-${item.customization.id}`} className="flex justify-between gap-3">
+                          <span>1 x {item.unitLabel}</span>
+                          <span className="font-bold">{formatCurrency(item.price)}</span>
                         </div>
                       ))}
                     </div>

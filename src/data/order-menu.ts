@@ -39,6 +39,7 @@ export const orderMenuItems: OrderMenuItem[] = [
     price: 4490,
     category: "individual-combos",
     drinkOptions: comboDrinkOptions,
+    sauceOptions: sideSauceOptions,
     removableIngredients: ["Salsa", "Tomate", "Lechuga", "Queso"],
   },
   {
@@ -46,6 +47,7 @@ export const orderMenuItems: OrderMenuItem[] = [
     price: 4890,
     category: "individual-combos",
     drinkOptions: comboDrinkOptions,
+    sauceOptions: sideSauceOptions,
     removableIngredients: ["Salsa", "Tocino", "Queso", "Cebolla caramelizada"],
   },
   {
@@ -53,6 +55,7 @@ export const orderMenuItems: OrderMenuItem[] = [
     price: 4690,
     category: "individual-combos",
     drinkOptions: comboDrinkOptions,
+    sauceOptions: sideSauceOptions,
     removableIngredients: ["Mayonesa", "Palta", "Tomate", "Queso"],
   },
   {
@@ -60,6 +63,7 @@ export const orderMenuItems: OrderMenuItem[] = [
     price: 5590,
     category: "individual-combos",
     drinkOptions: comboDrinkOptions,
+    sauceOptions: sideSauceOptions,
     removableIngredients: ["Salsa BBQ", "Huevo frito", "Tocino", "Queso cheddar", "Cebolla caramelizada"],
   },
   {
@@ -67,11 +71,12 @@ export const orderMenuItems: OrderMenuItem[] = [
     price: 5590,
     category: "individual-combos",
     drinkOptions: comboDrinkOptions,
+    sauceOptions: sideSauceOptions,
     removableIngredients: ["Mayonesa", "Tocino", "Lechuga", "Tomate", "Cebolla morada", "Queso cheddar"],
   },
-  { name: "Combo Familiar", price: 10490, category: "family-combos", drinkOptions: comboDrinkOptions },
-  { name: "Full Bacon", price: 11490, category: "family-combos", drinkOptions: comboDrinkOptions },
-  { name: "Full Clasicas", price: 9490, category: "family-combos", drinkOptions: comboDrinkOptions },
+  { name: "Combo Familiar", price: 10490, category: "family-combos", drinkOptions: comboDrinkOptions, sauceOptions: sideSauceOptions },
+  { name: "Full Bacon", price: 11490, category: "family-combos", drinkOptions: comboDrinkOptions, sauceOptions: sideSauceOptions },
+  { name: "Full Clasicas", price: 9490, category: "family-combos", drinkOptions: comboDrinkOptions, sauceOptions: sideSauceOptions },
   {
     name: "Combo Papero Cs-Bacon",
     price: 3890,
