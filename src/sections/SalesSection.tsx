@@ -110,7 +110,7 @@ export function SalesSection({
 
           <div className="my-3 border-t border-dashed border-black" />
 
-          <div className="space-y-1 text-[11px]">
+          <div className="receipt-cut space-y-1 text-[11px]">
             {receiptSale.client.trim() ? <p>Nombre: {receiptSale.client.trim()}</p> : null}
             <p>Pago: {saleStatusLabels[receiptSale.status]}</p>
             <p>Entrega: {receiptSale.deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
@@ -131,12 +131,12 @@ export function SalesSection({
               ].filter(Boolean);
 
               return (
-                <div key={`${receiptSale.id}-receipt-${item.name}-${index}`}>
+                <div key={`${receiptSale.id}-receipt-${item.name}-${index}`} className="receipt-cut">
                   <div className="flex justify-between gap-2 text-xs font-bold">
-                    <span>
+                    <span className="min-w-0 break-words">
                       {item.quantity} x {item.name}
                     </span>
-                    <span>{formatCurrency(item.total)}</span>
+                    <span className="shrink-0 whitespace-nowrap">{formatCurrency(item.total)}</span>
                   </div>
                   {notes.length > 0 ? (
                     <div className="mt-1 space-y-0.5 text-[10px] leading-4">
@@ -154,7 +154,7 @@ export function SalesSection({
 
           <div className="flex justify-between text-sm font-black">
             <span>Total</span>
-            <span>{formatCurrency(receiptSale.total)}</span>
+            <span className="shrink-0 whitespace-nowrap">{formatCurrency(receiptSale.total)}</span>
           </div>
         </div>
       ) : null}

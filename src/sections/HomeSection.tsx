@@ -374,13 +374,13 @@ export function HomeSection({
 
                   <div className="my-3 border-t border-dashed border-black" />
 
-                  <div className="space-y-1 text-[11px]">
+                  <div className="receipt-cut space-y-1 text-[11px]">
                     {orderName.trim() ? <p>Nombre: {orderName.trim()}</p> : null}
                     <p>Pago: Pendiente</p>
-                  <p>Entrega: {deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
-                  {deliveryType === "delivery" && deliveryAddress.trim() ? <p>Direccion: {deliveryAddress.trim()}</p> : null}
-                  {orderDetail.trim() ? <p>Detalle: {orderDetail.trim()}</p> : null}
-                </div>
+                    <p>Entrega: {deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
+                    {deliveryType === "delivery" && deliveryAddress.trim() ? <p>Direccion: {deliveryAddress.trim()}</p> : null}
+                    {orderDetail.trim() ? <p>Detalle: {orderDetail.trim()}</p> : null}
+                  </div>
 
                   <div className="my-3 border-t border-dashed border-black" />
 
@@ -389,12 +389,12 @@ export function HomeSection({
                       const notes = getCartItemNotes(item);
 
                       return (
-                        <div key={item.id}>
+                        <div key={item.id} className="receipt-cut">
                           <div className="flex justify-between gap-2 text-xs font-bold">
-                            <span>
+                            <span className="min-w-0 break-words">
                               {item.quantity} x {item.name}
                             </span>
-                            <span>{formatCurrency(item.price * item.quantity)}</span>
+                            <span className="shrink-0 whitespace-nowrap">{formatCurrency(item.price * item.quantity)}</span>
                           </div>
                           {notes.length > 0 ? (
                             <div className="mt-1 space-y-0.5 text-[10px] leading-4">
@@ -412,7 +412,7 @@ export function HomeSection({
 
                   <div className="flex justify-between text-sm font-black">
                     <span>Total</span>
-                    <span>{formatCurrency(cartTotal)}</span>
+                    <span className="shrink-0 whitespace-nowrap">{formatCurrency(cartTotal)}</span>
                   </div>
                 </div>
               </div>
