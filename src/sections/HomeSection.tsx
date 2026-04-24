@@ -4,6 +4,7 @@ import { PrintIcon, XIcon } from "../components/icons";
 import { shellCardClass } from "../constants/app";
 import { orderMenuCategories, orderMenuItems, type OrderMenuItem } from "../data/order-menu";
 import { formatCurrency } from "../lib/format";
+import { setupReceiptPrintPage } from "../lib/receipt-print";
 import type { DeliveryType, SaleOrderItem } from "../types";
 
 type CartItem = {
@@ -157,10 +158,12 @@ export function HomeSection({
       return;
     }
 
+    const removeReceiptPageStyle = setupReceiptPrintPage();
     document.body.classList.add("printing-receipt");
     window.print();
     window.setTimeout(() => {
       document.body.classList.remove("printing-receipt");
+      removeReceiptPageStyle();
       setIsPrinting(false);
       setIsReceiptOpen(false);
       setCartItems([]);

@@ -7,6 +7,7 @@ import { PrintIcon } from "../components/icons";
 import { saleStatusLabels, shellCardClass } from "../constants/app";
 import { formatShortDate } from "../lib/date";
 import { formatCurrency, formatNumber } from "../lib/format";
+import { setupReceiptPrintPage } from "../lib/receipt-print";
 import type { Sale, SaleOrderItem, SaleStatus } from "../types";
 
 const HISTORY_PAGE_SIZE = 8;
@@ -87,9 +88,11 @@ export function SalesSection({
       const cleanup = () => {
         document.body.classList.remove("printing-receipt");
         window.removeEventListener("afterprint", cleanup);
+        removeReceiptPageStyle();
         setReceiptSale(null);
       };
 
+      const removeReceiptPageStyle = setupReceiptPrintPage();
       document.body.classList.add("printing-receipt");
       window.addEventListener("afterprint", cleanup, { once: true });
       window.print();
