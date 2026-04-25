@@ -81,7 +81,6 @@ export const orderMenuItems: OrderMenuItem[] = [
     name: "Combo Papero Cs-Bacon",
     price: 3890,
     category: "papero-combo",
-    drinkOptions: comboDrinkOptions,
     sauceOptions: sideSauceOptions,
     removableIngredients: ["Salsa", "Tocino", "Queso", "Cebolla caramelizada"],
   },

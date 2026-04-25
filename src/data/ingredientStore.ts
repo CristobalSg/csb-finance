@@ -105,8 +105,12 @@ const baseIngredientsByCategory = (item: OrderMenuItem): string[] => {
     return ["Pan", "Carne"];
   }
 
-  if (item.category === "individual-combos" || item.category === "family-combos" || item.category === "papero-combo") {
+  if (item.category === "individual-combos" || item.category === "family-combos") {
     return ["Pan", "Carne", "Papitas fritas", "Bebida"];
+  }
+
+  if (item.category === "papero-combo") {
+    return ["Pan", "Carne", "Papitas fritas"];
   }
 
   if (item.category === "sides") {
