@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 import { PrintIcon, XIcon } from "../components/icons";
 import { shellCardClass } from "../constants/app";
-import { orderMenuCategories, orderMenuItems, type OrderMenuItem } from "../data/order-menu";
+import { familyComboDescriptions, orderMenuCategories, orderMenuItems, type OrderMenuItem } from "../data/order-menu";
 import { formatCurrency } from "../lib/format";
 import { setupReceiptPrintPage } from "../lib/receipt-print";
 import type { DeliveryType, SaleOrderItem } from "../types";
@@ -564,6 +564,7 @@ export function HomeSection({
                             {group.quantity} x {group.name}
                           </p>
                           <div className="mt-1 space-y-0.5 text-xs font-semibold">
+                            {familyComboDescriptions[group.name] ? <p>Incluye: {familyComboDescriptions[group.name]}</p> : null}
                             {group.removedIngredients.length > 0 ? <p>Sin: {group.removedIngredients.join(", ")}</p> : null}
                             {group.drinks.length > 0 ? <p>Bebida: {group.drinks.join(", ")}</p> : null}
                             {group.sauces.length > 0 ? <p>Salsa: {group.sauces.join(", ")}</p> : null}

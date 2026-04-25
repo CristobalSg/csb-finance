@@ -5,6 +5,7 @@ import { PaginationControls } from "../components/common/PaginationControls";
 import { TableEmpty } from "../components/common/TableEmpty";
 import { PrintIcon } from "../components/icons";
 import { saleStatusLabels, shellCardClass } from "../constants/app";
+import { familyComboDescriptions } from "../data/order-menu";
 import { formatShortDate } from "../lib/date";
 import { formatCurrency, formatNumber } from "../lib/format";
 import { setupReceiptPrintPage } from "../lib/receipt-print";
@@ -195,6 +196,7 @@ export function SalesSection({
                     {group.quantity} x {group.name}
                   </p>
                   <div className="mt-1 space-y-0.5 text-xs font-semibold">
+                    {familyComboDescriptions[group.name] ? <p>Incluye: {familyComboDescriptions[group.name]}</p> : null}
                     {group.removedIngredients.length > 0 ? <p>Sin: {group.removedIngredients.join(", ")}</p> : null}
                     {group.drinks.length > 0 ? <p>Bebida: {group.drinks.join(", ")}</p> : null}
                     {group.sauces.length > 0 ? <p>Salsa: {group.sauces.join(", ")}</p> : null}

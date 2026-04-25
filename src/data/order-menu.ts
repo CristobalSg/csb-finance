@@ -24,6 +24,12 @@ export const comboDrinkOptions = ["Sprite", "Coca-Cola", "Fanta"];
 
 export const sideSauceOptions = ["Mayonesa", "Ketchup", "Mostaza", "BBQ", "Chick Fill A"];
 
+export const familyComboDescriptions: Record<string, string> = {
+  "Combo Familiar": "3 clasicas + 2 bacon",
+  "Full Bacon": "5 bacon",
+  "Full Clasicas": "5 clasicas",
+};
+
 export const orderMenuCategories: OrderMenuCategory[] = [
   { id: "individual-combos", label: "Combos individuales" },
   { id: "family-combos", label: "Combos familiares" },
@@ -74,9 +80,9 @@ export const orderMenuItems: OrderMenuItem[] = [
     sauceOptions: sideSauceOptions,
     removableIngredients: ["Mayonesa", "Tocino", "Lechuga", "Tomate", "Cebolla morada", "Queso cheddar"],
   },
-  { name: "Combo Familiar", price: 10490, category: "family-combos", drinkOptions: comboDrinkOptions, sauceOptions: sideSauceOptions },
-  { name: "Full Bacon", price: 11490, category: "family-combos", drinkOptions: comboDrinkOptions, sauceOptions: sideSauceOptions },
-  { name: "Full Clasicas", price: 9490, category: "family-combos", drinkOptions: comboDrinkOptions, sauceOptions: sideSauceOptions },
+  { name: "Combo Familiar", price: 10490, category: "family-combos", sauceOptions: sideSauceOptions },
+  { name: "Full Bacon", price: 11490, category: "family-combos", sauceOptions: sideSauceOptions },
+  { name: "Full Clasicas", price: 9490, category: "family-combos", sauceOptions: sideSauceOptions },
   {
     name: "Combo Papero Cs-Bacon",
     price: 3890,
@@ -114,7 +120,7 @@ export const orderMenuItems: OrderMenuItem[] = [
     category: "burgers",
     removableIngredients: ["Tocino", "Lechuga", "Tomate", "Cebolla morada", "Salsa", "Queso cheddar"],
   },
-  { name: "Papitas fritas", price: 1300, category: "sides", sauceOptions: sideSauceOptions },
+  { name: "Papitas fritas", price: 1300, category: "sides" },
   { name: "Bebida", price: 1000, category: "sides", drinkOptions: comboDrinkOptions },
   { name: "Nuggets x5", price: 1790, category: "sides", sauceOptions: sideSauceOptions },
   { name: "Nuggets x10", price: 2590, category: "sides", sauceOptions: sideSauceOptions },

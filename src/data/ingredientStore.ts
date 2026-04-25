@@ -105,8 +105,12 @@ const baseIngredientsByCategory = (item: OrderMenuItem): string[] => {
     return ["Pan", "Carne"];
   }
 
-  if (item.category === "individual-combos" || item.category === "family-combos") {
+  if (item.category === "individual-combos") {
     return ["Pan", "Carne", "Papitas fritas", "Bebida"];
+  }
+
+  if (item.category === "family-combos") {
+    return ["Pan", "Carne", "Papitas fritas"];
   }
 
   if (item.category === "papero-combo") {
@@ -141,7 +145,7 @@ const getDefaultConsumption = (ingredientName: string, product: OrderMenuItem) =
 
   if (ingredientName === "Pan" || ingredientName === "Carne") {
     if (product.category === "family-combos") {
-      return product.name.includes("Full") ? 4 : 3;
+      return 5;
     }
 
     if (product.category === "burgers" || product.category === "individual-combos" || product.category === "papero-combo") {
@@ -241,14 +245,22 @@ const normalizeState = (state: IngredientStoreState): IngredientStoreState => {
     .sort((first, second) => first.nombre.localeCompare(second.nombre, "es"));
   const ingredientIds = new Set(ingredientes.map((ingredient) => ingredient.id));
   const productIds = new Set(menuProducts.map((product) => product.id));
+  const familyComboDrinkIds = new Set(["Bebida", "Sprite", "Coca-Cola", "Fanta"].map(createStableId));
 
   return {
     ingredientes,
     productos_ingredientes: state.productos_ingredientes
       .filter((relation) => ingredientIds.has(relation.ingrediente_id) && productIds.has(relation.producto_id))
+      .filter(
+        (relation) => !(relation.producto_id.startsWith("family-combos:") && familyComboDrinkIds.has(relation.ingrediente_id)),
+      )
       .map((relation) => ({
         ...relation,
-        cantidad_consumida: relation.cantidad_consumida ?? null,
+        cantidad_consumida:
+          relation.producto_id.startsWith("family-combos:") &&
+          (relation.ingrediente_id === createStableId("Pan") || relation.ingrediente_id === createStableId("Carne"))
+            ? 5
+            : relation.cantidad_consumida ?? null,
       })),
     compras: state.compras ?? [],
     ventas: state.ventas ?? [],
