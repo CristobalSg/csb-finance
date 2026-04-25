@@ -4,7 +4,7 @@ export type ReceiptPaperSize = "80mm" | "56mm";
 
 const receiptPaperPadding: Record<ReceiptPaperSize, { left: string; right: string }> = {
   "80mm": { left: "3.5mm", right: "3.5mm" },
-  "56mm": { left: "4mm", right: "4mm" },
+  "56mm": { left: "1mm", right: "7mm" },
 };
 
 export const setupReceiptPrintPage = (paperSize: ReceiptPaperSize = "80mm") => {
