@@ -3,15 +3,81 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PaginationControls } from "../components/common/PaginationControls";
 import { TableEmpty } from "../components/common/TableEmpty";
-import { PrintIcon } from "../components/icons";
+import { PrintIcon, XIcon } from "../components/icons";
 import { saleStatusLabels, shellCardClass } from "../constants/app";
 import { familyComboDescriptions } from "../data/order-menu";
 import { formatShortDate } from "../lib/date";
 import { formatCurrency, formatNumber } from "../lib/format";
-import { setupReceiptPrintPage } from "../lib/receipt-print";
-import type { Sale, SaleOrderItem, SaleStatus } from "../types";
+import { setupReceiptPrintPage, type ReceiptPaperSize } from "../lib/receipt-print";
+import { getSaleDeliveryFee, getSaleDiscountAmount, getSaleNetTotal } from "../lib/sales";
+import type { DeliveryType, Sale, SaleOrderItem, SaleStatus } from "../types";
 
 const HISTORY_PAGE_SIZE = 8;
+const DAILY_REPORT_START_HOUR = 13;
+const DAILY_REPORT_END_HOUR = 2;
+
+const defaultReceiptPrintSections = {
+  kitchen: true,
+  receipt: true,
+  thanks: true,
+};
+
+type ReceiptPrintSection = keyof typeof defaultReceiptPrintSections;
+
+const receiptPrintSectionOptions: { key: ReceiptPrintSection; label: string }[] = [
+  { key: "kitchen", label: "Comanda" },
+  { key: "receipt", label: "Boleta" },
+  { key: "thanks", label: "Gracias" },
+];
+
+type SaleUpdateInput = Pick<Sale, "client" | "detail" | "deliveryType" | "deliveryAddress" | "deliveryFee" | "fulfillmentTime">;
+
+type SaleEditForm = {
+  client: string;
+  detail: string;
+  deliveryType: DeliveryType;
+  deliveryAddress: string;
+  deliveryFee: string;
+  fulfillmentTime: string;
+};
+
+const isFamilyCombo = (name: string) => Boolean(familyComboDescriptions[name]);
+
+const shouldShowSauce = (item: Pick<SaleOrderItem, "name" | "sauce">) => Boolean(item.sauce && !isFamilyCombo(item.name));
+
+const getDateInputValue = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const createLocalDateTime = (date: string, hour: number) => {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(year, month - 1, day, hour, 0, 0, 0);
+};
+
+const getDailyReportRange = (date: string) => {
+  const start = createLocalDateTime(date, DAILY_REPORT_START_HOUR);
+  const end = createLocalDateTime(date, DAILY_REPORT_END_HOUR);
+  end.setDate(end.getDate() + 1);
+
+  return { start, end };
+};
+
+const formatReportDateTime = (date: Date) =>
+  date.toLocaleString("es-CL", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
+const isSaleInDailyReportRange = (sale: Sale, date: string) => {
+  const createdAt = new Date(sale.createdAt);
+  const { start, end } = getDailyReportRange(date);
+  return createdAt >= start && createdAt < end;
+};
 
 const formatSaleOrderItems = (sale: Sale) => {
   if (sale.orderItems && sale.orderItems.length > 0) {
@@ -22,8 +88,8 @@ const formatSaleOrderItems = (sale: Sale) => {
     {
       name: sale.productName || sale.detail || "Pedido",
       quantity: sale.quantity || 1,
-      unitPrice: sale.total,
-      total: sale.total,
+      unitPrice: getSaleNetTotal(sale),
+      total: getSaleNetTotal(sale),
     },
   ] satisfies SaleOrderItem[];
 };
@@ -50,7 +116,8 @@ const getKitchenGroups = (items: SaleOrderItem[]) => {
 
   for (const item of items) {
     const removedIngredients = [...(item.removedIngredients ?? [])].sort((a, b) => a.localeCompare(b));
-    const key = [item.name, item.drink ?? "", item.sauce ?? "", removedIngredients.join("|")].join("::");
+    const itemSauce = shouldShowSauce(item) ? item.sauce : undefined;
+    const key = [item.name, item.drink ?? "", itemSauce ?? "", removedIngredients.join("|")].join("::");
     const existing = groups.get(key);
 
     if (existing) {
@@ -62,7 +129,7 @@ const getKitchenGroups = (items: SaleOrderItem[]) => {
       name: item.name,
       quantity: item.quantity,
       drinks: item.drink ? [item.drink] : [],
-      sauces: item.sauce ? [item.sauce] : [],
+      sauces: itemSauce ? [itemSauce] : [],
       removedIngredients,
     });
   }
@@ -84,8 +151,9 @@ const getKitchenSummary = (items: SaleOrderItem[]) => {
       drinks.set(item.drink, (drinks.get(item.drink) ?? 0) + item.quantity);
     }
 
-    if (item.sauce) {
-      sauces.set(item.sauce, (sauces.get(item.sauce) ?? 0) + item.quantity);
+    const itemSauce = shouldShowSauce(item) ? item.sauce : undefined;
+    if (itemSauce) {
+      sauces.set(itemSauce, (sauces.get(itemSauce) ?? 0) + item.quantity);
     }
   }
 
@@ -101,6 +169,7 @@ export function SalesSection({
   sales,
   onDelete,
   onUpdateStatus,
+  onUpdateSale,
   onExport,
   onImport,
 }: {
@@ -108,6 +177,7 @@ export function SalesSection({
   sales: Sale[];
   onDelete: (id: string) => void;
   onUpdateStatus: (id: string, status: SaleStatus) => void;
+  onUpdateSale: (id: string, updates: SaleUpdateInput) => void;
   onExport: () => void;
   onImport: (csvContent: string) => void;
 }) {
@@ -115,6 +185,20 @@ export function SalesSection({
   const [historyPage, setHistoryPage] = useState(1);
   const [expandedSaleId, setExpandedSaleId] = useState<string | null>(null);
   const [receiptSale, setReceiptSale] = useState<Sale | null>(null);
+  const [receiptPrintSections, setReceiptPrintSections] = useState(defaultReceiptPrintSections);
+  const [receiptPaperSize, setReceiptPaperSize] = useState<ReceiptPaperSize>("80mm");
+  const [dailyReportDate, setDailyReportDate] = useState(getDateInputValue);
+  const [dailyReportPaperSize, setDailyReportPaperSize] = useState<ReceiptPaperSize>("58mm");
+  const [isDailyReportOpen, setIsDailyReportOpen] = useState(false);
+  const [editingSale, setEditingSale] = useState<Sale | null>(null);
+  const [saleEditForm, setSaleEditForm] = useState<SaleEditForm>({
+    client: "",
+    detail: "",
+    deliveryType: "retiro",
+    deliveryAddress: "",
+    deliveryFee: "",
+    fulfillmentTime: "",
+  });
 
   const totalHistoryPages = Math.max(1, Math.ceil(sales.length / HISTORY_PAGE_SIZE));
   const paginatedSales = useMemo(
@@ -142,18 +226,79 @@ export function SalesSection({
     reader.readAsText(file);
   };
 
-  const handleReprintReceipt = (sale: Sale) => {
+  const openReprintReceipt = (sale: Sale) => {
     setReceiptSale(sale);
+    setReceiptPrintSections(defaultReceiptPrintSections);
+    setReceiptPaperSize("80mm");
+  };
+
+  const openEditSale = (sale: Sale) => {
+    setEditingSale(sale);
+    setSaleEditForm({
+      client: sale.client,
+      detail: sale.detail,
+      deliveryType: sale.deliveryType ?? "retiro",
+      deliveryAddress: sale.deliveryAddress ?? "",
+      deliveryFee: sale.deliveryFee ? String(sale.deliveryFee) : "",
+      fulfillmentTime: sale.fulfillmentTime ?? "",
+    });
+  };
+
+  const closeEditSale = () => {
+    setEditingSale(null);
+    setSaleEditForm({
+      client: "",
+      detail: "",
+      deliveryType: "retiro",
+      deliveryAddress: "",
+      deliveryFee: "",
+      fulfillmentTime: "",
+    });
+  };
+
+  const handleSaveSaleEdit = () => {
+    if (!editingSale) {
+      return;
+    }
+
+    const deliveryFee = saleEditForm.deliveryType === "delivery" ? Number.parseInt(saleEditForm.deliveryFee, 10) || 0 : undefined;
+
+    onUpdateSale(editingSale.id, {
+      client: saleEditForm.client,
+      detail: saleEditForm.detail,
+      deliveryType: saleEditForm.deliveryType,
+      deliveryAddress: saleEditForm.deliveryType === "delivery" ? saleEditForm.deliveryAddress : "",
+      deliveryFee,
+      fulfillmentTime: saleEditForm.fulfillmentTime,
+    });
+    closeEditSale();
+  };
+
+  const closeReprintReceipt = () => {
+    setReceiptSale(null);
+    setReceiptPrintSections(defaultReceiptPrintSections);
+    setReceiptPaperSize("80mm");
+  };
+
+  const handleReprintReceipt = () => {
+    if (!receiptSale) {
+      return;
+    }
+
+    if (!receiptPrintSections.kitchen && !receiptPrintSections.receipt && !receiptPrintSections.thanks) {
+      window.alert("Selecciona al menos una hoja para imprimir.");
+      return;
+    }
 
     window.setTimeout(() => {
       const cleanup = () => {
         document.body.classList.remove("printing-receipt");
         window.removeEventListener("afterprint", cleanup);
         removeReceiptPageStyle();
-        setReceiptSale(null);
+        closeReprintReceipt();
       };
 
-      const removeReceiptPageStyle = setupReceiptPrintPage();
+      const removeReceiptPageStyle = setupReceiptPrintPage(receiptPaperSize);
       document.body.classList.add("printing-receipt");
       window.addEventListener("afterprint", cleanup, { once: true });
       window.print();
@@ -162,13 +307,124 @@ export function SalesSection({
   };
 
   const receiptItems = receiptSale ? formatSaleOrderItems(receiptSale) : [];
+  const receiptProductTotal = receiptItems.reduce((total, item) => total + item.total, 0);
   const kitchenGroups = getKitchenGroups(receiptItems);
   const kitchenSummary = getKitchenSummary(receiptItems);
+  const dailyReportRange = getDailyReportRange(dailyReportDate);
+  const dailyReportSales = useMemo(
+    () =>
+      sales
+        .filter((sale) => isSaleInDailyReportRange(sale, dailyReportDate))
+        .sort((first, second) => first.createdAt.localeCompare(second.createdAt)),
+    [dailyReportDate, sales],
+  );
+  const dailyReportTotals = useMemo(
+    () => ({
+      efectivo: dailyReportSales.filter((sale) => sale.status === "efectivo").reduce((total, sale) => total + getSaleNetTotal(sale), 0),
+      debito: dailyReportSales.filter((sale) => sale.status === "transferencia").reduce((total, sale) => total + getSaleNetTotal(sale), 0),
+      pendiente: dailyReportSales.filter((sale) => sale.status === "pendiente").reduce((total, sale) => total + getSaleNetTotal(sale), 0),
+      delivery: dailyReportSales.reduce((total, sale) => total + getSaleDeliveryFee(sale), 0),
+      total: dailyReportSales.reduce((total, sale) => total + getSaleNetTotal(sale), 0),
+    }),
+    [dailyReportSales],
+  );
+
+  const handlePrintDailyReport = () => {
+    const removeReceiptPageStyle = setupReceiptPrintPage(dailyReportPaperSize);
+    document.body.classList.add("printing-receipt");
+    window.addEventListener(
+      "afterprint",
+      () => {
+        document.body.classList.remove("printing-receipt");
+        removeReceiptPageStyle();
+      },
+      { once: true },
+    );
+    window.print();
+    window.setTimeout(() => {
+      document.body.classList.remove("printing-receipt");
+      removeReceiptPageStyle();
+    }, 500);
+  };
 
   return (
     <section id="ventas" className="flex h-full min-h-0 flex-col space-y-4">
+      {isDailyReportOpen ? (
+        <div data-receipt-print className="pointer-events-none fixed left-[-9999px] top-0">
+          <div className="receipt-paper">
+            <div className="text-center">
+              <p className="text-xs font-black uppercase">Cierre diario</p>
+              <p className="mt-1 text-[11px] font-bold">Ceese Burger's</p>
+              <p className="mt-2 text-xs font-bold">
+                {formatReportDateTime(dailyReportRange.start)} a {formatReportDateTime(dailyReportRange.end)}
+              </p>
+            </div>
+
+            <div className="my-3 border-t border-dashed border-black" />
+
+            <div className="receipt-cut space-y-1 text-xs font-bold">
+              <div className="flex justify-between gap-2">
+                <span>Ventas</span>
+                <span>{dailyReportSales.length}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span>Efectivo</span>
+                <span className="shrink-0">{formatCurrency(dailyReportTotals.efectivo)}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span>Debito / transf.</span>
+                <span className="shrink-0">{formatCurrency(dailyReportTotals.debito)}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span>Pendiente</span>
+                <span className="shrink-0">{formatCurrency(dailyReportTotals.pendiente)}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span>Delivery cobrado</span>
+                <span className="shrink-0">{formatCurrency(dailyReportTotals.delivery)}</span>
+              </div>
+            </div>
+
+            <div className="my-3 border-t border-dashed border-black" />
+
+            <div className="flex justify-between gap-2 text-sm font-black">
+              <span>Total cobrado</span>
+              <span className="shrink-0">{formatCurrency(dailyReportTotals.efectivo + dailyReportTotals.debito)}</span>
+            </div>
+            <div className="mt-1 flex justify-between gap-2 text-xs font-black">
+              <span>Total ventas</span>
+              <span className="shrink-0">{formatCurrency(dailyReportTotals.total)}</span>
+            </div>
+
+            {dailyReportSales.length > 0 ? (
+              <>
+                <div className="my-3 border-t border-dashed border-black" />
+                <div className="space-y-2">
+                  {dailyReportSales.map((sale) => (
+                    <div key={sale.id} className="receipt-cut text-xs font-semibold">
+                      <div className="flex justify-between gap-2">
+                        <span>
+                          {new Date(sale.createdAt).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })} ·{" "}
+                          {sale.client || "Sin cliente"}
+                        </span>
+                        <span className="shrink-0">{formatCurrency(getSaleNetTotal(sale))}</span>
+                      </div>
+                      <p className="mt-0.5 text-[11px] font-bold uppercase">
+                        {saleStatusLabels[sale.status]}
+                        {getSaleDeliveryFee(sale) > 0 ? ` · Delivery ${formatCurrency(getSaleDeliveryFee(sale))}` : ""}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {receiptSale ? (
         <div data-receipt-print className="pointer-events-none fixed left-[-9999px] top-0">
+          {receiptPrintSections.kitchen ? (
           <div className="receipt-paper">
             <div className="text-center">
               <p className="text-xs font-black uppercase">Comanda</p>
@@ -234,7 +490,9 @@ export function SalesSection({
               </>
             ) : null}
           </div>
+          ) : null}
 
+          {receiptPrintSections.receipt ? (
           <div className="receipt-paper">
             <div className="text-center">
               <img src="/receipt-logo.png" alt="Ceese Burger's" className="receipt-logo" />
@@ -261,7 +519,7 @@ export function SalesSection({
               {receiptItems.map((item, index) => {
                 const notes = [
                   item.drink ? `Bebida: ${item.drink}` : "",
-                  item.sauce ? `Salsa: ${item.sauce}` : "",
+                  shouldShowSauce(item) ? `Salsa: ${item.sauce}` : "",
                   item.removedIngredients?.length ? `Sin: ${item.removedIngredients.join(", ")}` : "",
                 ].filter(Boolean);
 
@@ -287,16 +545,24 @@ export function SalesSection({
 
             <div className="my-3 border-t border-dashed border-black" />
 
-            {receiptSale.deliveryType === "delivery" ? (
+            {receiptSale.deliveryType === "delivery" || getSaleDiscountAmount(receiptSale) > 0 ? (
               <div className="space-y-1 text-xs font-bold">
                 <div className="flex justify-between gap-2">
                   <span>Subtotal</span>
-                  <span className="shrink-0 whitespace-nowrap">{formatCurrency(receiptSale.total - (receiptSale.deliveryFee ?? 0))}</span>
+                  <span className="shrink-0 whitespace-nowrap">{formatCurrency(receiptProductTotal)}</span>
                 </div>
-                <div className="flex justify-between gap-2">
-                  <span>Delivery</span>
-                  <span className="shrink-0 whitespace-nowrap">{formatCurrency(receiptSale.deliveryFee ?? 0)}</span>
-                </div>
+                {getSaleDiscountAmount(receiptSale) > 0 ? (
+                  <div className="flex justify-between gap-2">
+                    <span>Descuento</span>
+                    <span className="shrink-0 whitespace-nowrap">-{formatCurrency(getSaleDiscountAmount(receiptSale))}</span>
+                  </div>
+                ) : null}
+                {receiptSale.deliveryType === "delivery" ? (
+                  <div className="flex justify-between gap-2">
+                    <span>Delivery</span>
+                    <span className="shrink-0 whitespace-nowrap">{formatCurrency(receiptSale.deliveryFee ?? 0)}</span>
+                  </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -305,7 +571,9 @@ export function SalesSection({
               <span className="shrink-0 whitespace-nowrap">{formatCurrency(receiptSale.total)}</span>
             </div>
           </div>
+          ) : null}
 
+          {receiptPrintSections.thanks ? (
           <div className="receipt-paper">
             <div className="flex min-h-[48mm] flex-col items-center justify-center text-center">
               <p className="text-xl font-black uppercase leading-tight">Muchas gracias</p>
@@ -313,10 +581,351 @@ export function SalesSection({
               <p className="mt-3 text-base font-black uppercase">Ceese Burger's</p>
             </div>
           </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {receiptSale ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/55 px-4 py-8 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-[2rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.28)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-rose-500">Ventas</p>
+                <h3 className="mt-1 text-xl font-bold text-rose-950">Reimprimir pedido</h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeReprintReceipt}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
+                aria-label="Cerrar seleccion de impresion"
+              >
+                <XIcon />
+              </button>
+            </div>
+
+            <div className="mt-5 rounded-[1.25rem] bg-rose-50/60 p-4">
+              <p className="text-sm font-bold text-rose-950">{receiptSale.client || "Sin cliente"}</p>
+              <p className="mt-1 text-xs font-semibold text-rose-600">
+                Venta {formatCurrency(getSaleNetTotal(receiptSale))}
+                {getSaleDeliveryFee(receiptSale) > 0 ? ` · Delivery ${formatCurrency(getSaleDeliveryFee(receiptSale))}` : ""} ·{" "}
+                {formatShortDate(receiptSale.date)}
+              </p>
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-2">
+              {receiptPrintSectionOptions.map((option) => (
+                <label
+                  key={option.key}
+                  className="flex items-center justify-center gap-2 rounded-full border border-rose-200 bg-rose-50/60 px-3 py-2 text-xs font-bold text-rose-800"
+                >
+                  <input
+                    type="checkbox"
+                    checked={receiptPrintSections[option.key]}
+                    onChange={(event) =>
+                      setReceiptPrintSections((current) => ({
+                        ...current,
+                        [option.key]: event.target.checked,
+                      }))
+                    }
+                    className="h-4 w-4 accent-fuchsia-600"
+                  />
+                  <span>{option.label}</span>
+                </label>
+              ))}
+            </div>
+
+            <div className="mt-4">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Papel</p>
+              <div className="grid grid-cols-2 gap-2 rounded-full bg-rose-50 p-1">
+                {(["80mm", "58mm"] as ReceiptPaperSize[]).map((paperSize) => (
+                  <button
+                    key={paperSize}
+                    type="button"
+                    onClick={() => setReceiptPaperSize(paperSize)}
+                    className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+                      receiptPaperSize === paperSize ? "bg-fuchsia-600 text-white" : "text-rose-700"
+                    }`}
+                  >
+                    {paperSize}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={closeReprintReceipt}
+                className="rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleReprintReceipt}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-fuchsia-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-300/50 transition hover:bg-fuchsia-700"
+              >
+                <PrintIcon />
+                Imprimir seleccion
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isDailyReportOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/55 px-4 py-8 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-[2rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.28)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-rose-500">Ventas</p>
+                <h3 className="mt-1 text-xl font-bold text-rose-950">Imprimir cierre diario</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDailyReportOpen(false);
+                  setDailyReportPaperSize("58mm");
+                }}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
+                aria-label="Cerrar cierre diario"
+              >
+                <XIcon />
+              </button>
+            </div>
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_190px]">
+              <label className="block space-y-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Dia de venta</span>
+                <input
+                  type="date"
+                  value={dailyReportDate}
+                  onChange={(event) => {
+                    if (event.target.value) {
+                      setDailyReportDate(event.target.value);
+                    }
+                  }}
+                  className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                />
+              </label>
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Papel</p>
+                <div className="mt-2 grid grid-cols-2 gap-2 rounded-full bg-rose-50 p-1">
+                  {(["58mm", "80mm"] as ReceiptPaperSize[]).map((paperSize) => (
+                    <button
+                      key={paperSize}
+                      type="button"
+                      onClick={() => setDailyReportPaperSize(paperSize)}
+                      className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+                        dailyReportPaperSize === paperSize ? "bg-fuchsia-600 text-white" : "text-rose-700"
+                      }`}
+                    >
+                      {paperSize}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-[1.25rem] bg-rose-50/60 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Turno</p>
+              <p className="mt-2 text-sm font-bold text-rose-950">
+                {formatReportDateTime(dailyReportRange.start)} a {formatReportDateTime(dailyReportRange.end)}
+              </p>
+              <div className="mt-4 grid gap-2 text-sm text-rose-800 sm:grid-cols-2">
+                <div className="flex justify-between gap-3 rounded-[1rem] bg-white/70 px-3 py-2">
+                  <span>Efectivo</span>
+                  <span className="font-black">{formatCurrency(dailyReportTotals.efectivo)}</span>
+                </div>
+                <div className="flex justify-between gap-3 rounded-[1rem] bg-white/70 px-3 py-2">
+                  <span>Debito</span>
+                  <span className="font-black">{formatCurrency(dailyReportTotals.debito)}</span>
+                </div>
+                <div className="flex justify-between gap-3 rounded-[1rem] bg-white/70 px-3 py-2">
+                  <span>Pendiente</span>
+                  <span className="font-black">{formatCurrency(dailyReportTotals.pendiente)}</span>
+                </div>
+                <div className="flex justify-between gap-3 rounded-[1rem] bg-white/70 px-3 py-2">
+                  <span>Delivery</span>
+                  <span className="font-black">{formatCurrency(dailyReportTotals.delivery)}</span>
+                </div>
+                <div className="flex justify-between gap-3 rounded-[1rem] bg-white/70 px-3 py-2">
+                  <span>Total cobrado</span>
+                  <span className="font-black">{formatCurrency(dailyReportTotals.efectivo + dailyReportTotals.debito)}</span>
+                </div>
+              </div>
+              <p className="mt-3 text-xs font-semibold text-rose-600">
+                {formatNumber(dailyReportSales.length)} ventas en el rango seleccionado.
+              </p>
+            </div>
+
+            <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDailyReportOpen(false);
+                  setDailyReportPaperSize("58mm");
+                }}
+                className="rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handlePrintDailyReport}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-fuchsia-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-300/50 transition hover:bg-fuchsia-700"
+              >
+                <PrintIcon />
+                Imprimir cierre
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editingSale ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/55 px-4 py-8 backdrop-blur-sm">
+          <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.28)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-rose-500">Ventas</p>
+                <h3 className="mt-1 text-xl font-bold text-rose-950">Editar venta</h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeEditSale}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
+                aria-label="Cerrar edicion de venta"
+              >
+                <XIcon />
+              </button>
+            </div>
+
+            <div className="mt-5 min-h-0 flex-1 space-y-4 overflow-auto pr-1">
+              <div className="rounded-[1.25rem] bg-rose-50/60 p-4">
+                <p className="text-sm font-bold text-rose-950">{formatCurrency(getSaleNetTotal(editingSale))}</p>
+                <p className="mt-1 text-xs font-semibold text-rose-600">
+                  {formatShortDate(editingSale.date)}
+                  {getSaleDeliveryFee(editingSale) > 0 ? ` · Delivery ${formatCurrency(getSaleDeliveryFee(editingSale))}` : ""}
+                </p>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_220px]">
+                <label className="block space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Nombre pedido</span>
+                  <input
+                    value={saleEditForm.client}
+                    onChange={(event) => setSaleEditForm((current) => ({ ...current, client: event.target.value }))}
+                    className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                    placeholder="Opcional"
+                  />
+                </label>
+
+                <label className="block space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Hora entrega</span>
+                  <input
+                    value={saleEditForm.fulfillmentTime}
+                    onChange={(event) => setSaleEditForm((current) => ({ ...current, fulfillmentTime: event.target.value }))}
+                    className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                    placeholder="20:00"
+                  />
+                </label>
+
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Entrega</p>
+                  <div className="mt-2 grid grid-cols-2 gap-2 rounded-full bg-rose-50 p-1">
+                    {[
+                      { value: "retiro", label: "Retiro" },
+                      { value: "delivery", label: "Delivery" },
+                    ].map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setSaleEditForm((current) => ({ ...current, deliveryType: option.value as DeliveryType }))}
+                        className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+                          saleEditForm.deliveryType === option.value ? "bg-fuchsia-600 text-white" : "text-rose-700"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {saleEditForm.deliveryType === "delivery" ? (
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+                  <label className="block space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Direccion delivery</span>
+                    <input
+                      value={saleEditForm.deliveryAddress}
+                      onChange={(event) => setSaleEditForm((current) => ({ ...current, deliveryAddress: event.target.value }))}
+                      className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                      placeholder="Calle, numero, referencia"
+                    />
+                  </label>
+
+                  <label className="block space-y-2">
+                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Valor delivery</span>
+                    <input
+                      value={saleEditForm.deliveryFee}
+                      onChange={(event) =>
+                        setSaleEditForm((current) => ({ ...current, deliveryFee: event.target.value.replace(/\D/g, "") }))
+                      }
+                      inputMode="numeric"
+                      className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                      placeholder="0"
+                    />
+                  </label>
+                </div>
+              ) : null}
+
+              <label className="block space-y-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Detalle / nota</span>
+                <textarea
+                  rows={4}
+                  value={saleEditForm.detail}
+                  onChange={(event) => setSaleEditForm((current) => ({ ...current, detail: event.target.value }))}
+                  className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                  placeholder="Descuento, regalo, canje, consumo trabajador..."
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 flex flex-col-reverse gap-3 border-t border-rose-100 pt-4 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={closeEditSale}
+                className="rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSaleEdit}
+                className="rounded-full bg-fuchsia-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-300/50 transition hover:bg-fuchsia-700"
+              >
+                Guardar cambios
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
 
       <div className="flex flex-wrap justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            setDailyReportDate(getDateInputValue());
+            setDailyReportPaperSize("58mm");
+            setIsDailyReportOpen(true);
+          }}
+          className="inline-flex items-center gap-2 rounded-full border border-fuchsia-200 bg-fuchsia-50 px-5 py-3 text-sm font-semibold text-fuchsia-700 transition hover:border-fuchsia-300 hover:bg-white"
+        >
+          <PrintIcon />
+          Imprimir cierre diario
+        </button>
         <button
           type="button"
           onClick={onExport}
@@ -366,7 +975,7 @@ export function SalesSection({
                     <th className="pb-3 pr-4 font-semibold">Pedido</th>
                     <th className="pb-3 pr-4 font-semibold">Detalle</th>
                     <th className="pb-3 pr-4 font-semibold">Entrega</th>
-                    <th className="pb-3 pr-4 font-semibold">Total</th>
+                    <th className="pb-3 pr-4 font-semibold">Venta</th>
                     <th className="pb-3 pr-4 font-semibold">Estado</th>
                     <th className="pb-3 font-semibold">Accion</th>
                   </tr>
@@ -403,7 +1012,12 @@ export function SalesSection({
                               <p className="mt-1 text-xs font-semibold text-fuchsia-700">{formatCurrency(sale.deliveryFee ?? 0)}</p>
                             ) : null}
                           </td>
-                          <td className="py-4 pr-4 font-bold text-fuchsia-700">{formatCurrency(sale.total)}</td>
+                          <td className="py-4 pr-4">
+                            <p className="font-bold text-fuchsia-700">{formatCurrency(getSaleNetTotal(sale))}</p>
+                            {getSaleDeliveryFee(sale) > 0 ? (
+                              <p className="mt-1 text-xs font-semibold text-rose-500">Delivery: {formatCurrency(getSaleDeliveryFee(sale))}</p>
+                            ) : null}
+                          </td>
                           <td className="py-4 pr-4">
                             <span
                               className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${
@@ -439,11 +1053,18 @@ export function SalesSection({
                               ) : null}
                               <button
                                 type="button"
-                                onClick={() => handleReprintReceipt(sale)}
+                                onClick={() => openReprintReceipt(sale)}
                                 className="inline-flex items-center gap-1 rounded-full border border-stone-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 shadow-sm transition hover:border-stone-800 hover:bg-stone-800 hover:text-white hover:shadow-md focus:outline-none focus:ring-2 focus:ring-stone-300"
                               >
                                 <PrintIcon />
                                 Reimprimir
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openEditSale(sale)}
+                                className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-fuchsia-700 transition hover:border-fuchsia-700 hover:bg-fuchsia-700 hover:text-white"
+                              >
+                                Editar
                               </button>
                               <button
                                 type="button"
@@ -475,11 +1096,11 @@ export function SalesSection({
                                       <p className="font-bold text-fuchsia-700">{formatCurrency(item.total)}</p>
                                     </div>
                                     <p className="mt-1 text-xs text-rose-500">{formatCurrency(item.unitPrice)} c/u</p>
-                                    {item.drink || item.sauce || item.removedIngredients?.length ? (
+                                    {item.drink || shouldShowSauce(item) || item.removedIngredients?.length ? (
                                       <p className="mt-2 text-xs leading-5 text-rose-700/80">
                                         {[
                                           item.drink ? `Bebida: ${item.drink}` : "",
-                                          item.sauce ? `Salsa: ${item.sauce}` : "",
+                                          shouldShowSauce(item) ? `Salsa: ${item.sauce}` : "",
                                           item.removedIngredients?.length ? `Sin: ${item.removedIngredients.join(", ")}` : "",
                                         ]
                                           .filter(Boolean)

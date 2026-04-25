@@ -1,4 +1,5 @@
 import type { InventoryItem, Purchase, Sale } from "../types";
+import { getSaleDeliveryFee, getSaleDiscountAmount, getSaleNetTotal } from "./sales";
 
 export const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-CL", {
@@ -55,7 +56,20 @@ export const purchaseRowsToCsv = (rows: Purchase[]) => {
 };
 
 export const salesRowsToCsv = (rows: Sale[]) => {
-  const header = ["FECHA", "CLIENTE", "PEDIDO", "DETALLE", "ENTREGA", "DIRECCION", "HORA ENTREGA", "DELIVERY", "TOTAL", "ESTADO"];
+  const header = [
+    "FECHA",
+    "CLIENTE",
+    "PEDIDO",
+    "DETALLE",
+    "ENTREGA",
+    "DIRECCION",
+    "HORA ENTREGA",
+    "DELIVERY",
+    "DESCUENTO",
+    "TOTAL",
+    "TOTAL_COBRADO",
+    "ESTADO",
+  ];
   const body = rows.map((row) => {
     const orderText =
       row.orderItems
@@ -80,7 +94,9 @@ export const salesRowsToCsv = (rows: Sale[]) => {
       row.deliveryType ?? "retiro",
       row.deliveryAddress ?? "",
       row.fulfillmentTime ?? "",
-      row.deliveryFee ?? 0,
+      getSaleDeliveryFee(row),
+      getSaleDiscountAmount(row),
+      getSaleNetTotal(row),
       row.total,
       row.status,
     ]

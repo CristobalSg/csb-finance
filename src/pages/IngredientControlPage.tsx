@@ -128,9 +128,7 @@ export function IngredientControlPage() {
   }, []);
 
   useEffect(() => {
-    if (store.ingredientes.length > 0) {
-      void saveIngredientStore(store);
-    }
+    void saveIngredientStore(store);
   }, [store]);
 
   const productById = useMemo(() => new Map(menuProducts.map((product) => [product.id, product])), []);

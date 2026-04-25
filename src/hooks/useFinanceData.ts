@@ -20,6 +20,7 @@ import { getCurrentDate, getLastDays } from "../lib/date";
 import { addRecord, clearAllRecords, deleteRecord, getAllRecords } from "../lib/db";
 import { downloadFile, inventoryRowsToCsv, purchaseRowsToCsv, salesRowsToCsv } from "../lib/format";
 import { createId } from "../lib/id";
+import { getSaleNetTotal } from "../lib/sales";
 import type {
   BackupPayload,
   DeliveryType,
@@ -151,12 +152,13 @@ const inferSaleQuantity = (sale: Sale, price: number) => {
     return 0;
   }
 
-  const estimate = Math.round(sale.total / price);
+  const saleTotal = getSaleNetTotal(sale);
+  const estimate = Math.round(saleTotal / price);
   if (estimate <= 0) {
     return 0;
   }
 
-  const difference = Math.abs(sale.total - estimate * price);
+  const difference = Math.abs(saleTotal - estimate * price);
   return difference <= Math.max(250, price * 0.12) ? estimate : 0;
 };
 
@@ -222,11 +224,11 @@ export function useFinanceData() {
   const inventoryPreviewTotal = getNumericValue(inventoryForm.quantity) * getNumericValue(inventoryForm.unitPrice);
 
   const totals = useMemo(() => {
-    const income = sales.reduce((sum, item) => sum + item.total, 0);
-    const collectedIncome = sales.filter((item) => item.status !== "pendiente").reduce((sum, item) => sum + item.total, 0);
-    const cashIncome = sales.filter((item) => item.status === "efectivo").reduce((sum, item) => sum + item.total, 0);
-    const transferIncome = sales.filter((item) => item.status === "transferencia").reduce((sum, item) => sum + item.total, 0);
-    const pendingIncome = sales.filter((item) => item.status === "pendiente").reduce((sum, item) => sum + item.total, 0);
+    const income = sales.reduce((sum, item) => sum + getSaleNetTotal(item), 0);
+    const collectedIncome = sales.filter((item) => item.status !== "pendiente").reduce((sum, item) => sum + getSaleNetTotal(item), 0);
+    const cashIncome = sales.filter((item) => item.status === "efectivo").reduce((sum, item) => sum + getSaleNetTotal(item), 0);
+    const transferIncome = sales.filter((item) => item.status === "transferencia").reduce((sum, item) => sum + getSaleNetTotal(item), 0);
+    const pendingIncome = sales.filter((item) => item.status === "pendiente").reduce((sum, item) => sum + getSaleNetTotal(item), 0);
     const salesCount = sales.length;
     const expenses = purchases.reduce((sum, item) => sum + item.total, 0);
     const purchasesCount = purchases.length;
@@ -352,7 +354,7 @@ export function useFinanceData() {
 
     return lastDays.map((date) => ({
       date,
-      income: sales.filter((item) => item.date === date).reduce((sum, item) => sum + item.total, 0),
+      income: sales.filter((item) => item.date === date).reduce((sum, item) => sum + getSaleNetTotal(item), 0),
       expense: purchases
         .filter((item) => item.date === date && item.entryType !== "investment")
         .reduce((sum, item) => sum + item.total, 0),
@@ -627,6 +629,7 @@ export function useFinanceData() {
     deliveryType,
     deliveryAddress,
     deliveryFee,
+    discountAmount,
     fulfillmentTime,
     orderItems,
     quantity,
@@ -638,6 +641,7 @@ export function useFinanceData() {
     deliveryType: DeliveryType;
     deliveryAddress?: string;
     deliveryFee?: number;
+    discountAmount?: number;
     fulfillmentTime?: string;
     orderItems: SaleOrderItem[];
     quantity: number;
@@ -659,6 +663,7 @@ export function useFinanceData() {
       deliveryType,
       deliveryAddress: deliveryAddress?.trim(),
       deliveryFee,
+      discountAmount,
       fulfillmentTime: fulfillmentTime?.trim(),
       quantity,
       productName,
@@ -711,6 +716,36 @@ export function useFinanceData() {
       await addRecord("sales", updatedSale);
       setSales((current) => current.map((item) => (item.id === id ? updatedSale : item)));
       saveFeedback("success", "Estado de pago actualizado.");
+    } catch (submitError) {
+      saveFeedback("error", submitError instanceof Error ? submitError.message : "No fue posible actualizar la venta.");
+    }
+  };
+
+  const updateSaleDetails = async (
+    id: string,
+    updates: Pick<Sale, "client" | "detail" | "deliveryType" | "deliveryAddress" | "deliveryFee" | "fulfillmentTime">,
+  ) => {
+    const sale = sales.find((item) => item.id === id);
+
+    if (!sale) {
+      saveFeedback("error", "No fue posible encontrar la venta.");
+      return;
+    }
+
+    const updatedSale: Sale = {
+      ...sale,
+      client: updates.client.trim().toUpperCase(),
+      detail: updates.detail.trim().toUpperCase(),
+      deliveryType: updates.deliveryType,
+      deliveryAddress: updates.deliveryAddress?.trim(),
+      deliveryFee: updates.deliveryFee,
+      fulfillmentTime: updates.fulfillmentTime?.trim(),
+    };
+
+    try {
+      await addRecord("sales", updatedSale);
+      setSales((current) => current.map((item) => (item.id === id ? updatedSale : item)));
+      saveFeedback("success", "Venta actualizada correctamente.");
     } catch (submitError) {
       saveFeedback("error", submitError instanceof Error ? submitError.message : "No fue posible actualizar la venta.");
     }
@@ -955,6 +990,7 @@ export function useFinanceData() {
     handleSaleSubmit,
     addSaleFromOrder,
     updateSaleStatus,
+    updateSaleDetails,
     handleInventorySubmit,
     exportBackup,
     exportPurchasesCsv,

@@ -2,7 +2,6 @@ import { orderMenuCategories, orderMenuItems, sideSauceOptions, type OrderMenuIt
 import type {
   Ingredient,
   IngredientControlType,
-  IngredientRelationType,
   IngredientStoreState,
   IngredientUnit,
   InventoryPurchase,
@@ -16,6 +15,7 @@ import type {
 } from "../types/inventory";
 
 const STORAGE_KEY = "pink-finance-studio:ingredient-control";
+const EMPTY_CONTROL_STORAGE_KEY = `${STORAGE_KEY}:empty-v2`;
 
 const automaticIngredientNames = new Set([
   "Pan",
@@ -87,142 +87,7 @@ const getInitialStockMinimum = (name: string, controlType: IngredientControlType
   return 5;
 };
 
-const createIngredient = (nombre: string): Ingredient => {
-  const tipo_control = getControlType(nombre);
-  return {
-    id: createStableId(nombre),
-    nombre,
-    disponible: tipo_control === "manual",
-    tipo_control,
-    unidad: getUnit(nombre, tipo_control),
-    stock_actual: tipo_control === "automatico" ? 0 : null,
-    stock_minimo: getInitialStockMinimum(nombre, tipo_control),
-  };
-};
-
-const baseIngredientsByCategory = (item: OrderMenuItem): string[] => {
-  if (item.category === "burgers") {
-    return ["Pan", "Carne"];
-  }
-
-  if (item.category === "individual-combos") {
-    return ["Pan", "Carne", "Papitas fritas", "Bebida"];
-  }
-
-  if (item.category === "family-combos") {
-    return ["Pan", "Carne", "Papitas fritas"];
-  }
-
-  if (item.category === "papero-combo") {
-    return ["Pan", "Carne", "Papitas fritas"];
-  }
-
-  if (item.category === "sides") {
-    if (item.name === "Papitas fritas") {
-      return ["Papitas fritas"];
-    }
-
-    if (item.name === "Bebida") {
-      return ["Bebida"];
-    }
-
-    if (item.name.toLowerCase().includes("nuggets")) {
-      return ["Nuggets"];
-    }
-  }
-
-  if (item.category === "sauces") {
-    return [item.name];
-  }
-
-  return [];
-};
-
-const getDefaultConsumption = (ingredientName: string, product: OrderMenuItem) => {
-  if (!automaticIngredientNames.has(ingredientName)) {
-    return null;
-  }
-
-  if (ingredientName === "Pan" || ingredientName === "Carne") {
-    if (product.category === "family-combos") {
-      return 5;
-    }
-
-    if (product.category === "burgers" || product.category === "individual-combos" || product.category === "papero-combo") {
-      return 1;
-    }
-  }
-
-  if (ingredientName === "Bebida" || ingredientName === "Papitas fritas") {
-    return 1;
-  }
-
-  if (ingredientName === "Sprite" || ingredientName === "Coca-Cola" || ingredientName === "Fanta") {
-    return 1;
-  }
-
-  if (ingredientName === "Nuggets") {
-    return product.name.includes("10") ? 10 : 5;
-  }
-
-  return 1;
-};
-
-const pushRelation = (
-  relations: ProductIngredient[],
-  seen: Set<string>,
-  product: OrderMenuItem,
-  ingredientName: string,
-  tipo: IngredientRelationType,
-) => {
-  const producto_id = createProductId(product);
-  const ingrediente_id = createStableId(ingredientName);
-  const key = `${producto_id}:${ingrediente_id}`;
-
-  if (seen.has(key)) {
-    return;
-  }
-
-  seen.add(key);
-  relations.push({
-    producto_id,
-    ingrediente_id,
-    tipo,
-    cantidad_consumida: getDefaultConsumption(ingredientName, product),
-  });
-};
-
-const createInitialState = (): IngredientStoreState => {
-  const ingredientNames = new Set<string>();
-  const productos_ingredientes: ProductIngredient[] = [];
-  const seenRelations = new Set<string>();
-
-  for (const item of orderMenuItems) {
-    for (const name of baseIngredientsByCategory(item)) {
-      ingredientNames.add(name);
-      pushRelation(productos_ingredientes, seenRelations, item, name, "obligatorio");
-    }
-
-    for (const name of item.removableIngredients ?? []) {
-      ingredientNames.add(name);
-      pushRelation(productos_ingredientes, seenRelations, item, name, "obligatorio");
-    }
-
-    for (const name of item.drinkOptions ?? []) {
-      ingredientNames.add(name);
-      pushRelation(productos_ingredientes, seenRelations, item, name, "reemplazable");
-    }
-
-    for (const name of item.sauceOptions ?? []) {
-      ingredientNames.add(name);
-      pushRelation(productos_ingredientes, seenRelations, item, name, "opcional");
-    }
-  }
-
-  const ingredientes = [...ingredientNames].sort((first, second) => first.localeCompare(second, "es")).map(createIngredient);
-
-  return { ingredientes, productos_ingredientes, compras: [], ventas: [] };
-};
+const createInitialState = (): IngredientStoreState => ({ ingredientes: [], productos_ingredientes: [], compras: [], ventas: [] });
 
 const migrateIngredient = (ingredient: Partial<Ingredient> & Pick<Ingredient, "id" | "nombre" | "disponible">): Ingredient => {
   const tipo_control = ingredient.tipo_control ?? getControlType(ingredient.nombre);
@@ -275,7 +140,7 @@ export const loadIngredientStore = async (): Promise<IngredientStoreState> => {
   }
 
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.localStorage.getItem(EMPTY_CONTROL_STORAGE_KEY);
     return raw ? normalizeState(JSON.parse(raw) as IngredientStoreState) : defaultIngredientStoreState;
   } catch {
     return defaultIngredientStoreState;
@@ -287,7 +152,7 @@ export const saveIngredientStore = async (state: IngredientStoreState) => {
     return;
   }
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(normalizeState(state)));
+  window.localStorage.setItem(EMPTY_CONTROL_STORAGE_KEY, JSON.stringify(normalizeState(state)));
 };
 
 export const createIngredientId = (nombre: string, existingIngredients: Ingredient[]) => {

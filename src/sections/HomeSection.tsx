@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { type CSSProperties, useMemo, useState } from "react";
 
 import { PrintIcon, XIcon } from "../components/icons";
 import { shellCardClass } from "../constants/app";
 import { familyComboDescriptions, orderMenuCategories, orderMenuItems, type OrderMenuItem } from "../data/order-menu";
 import { formatCurrency } from "../lib/format";
-import { setupReceiptPrintPage } from "../lib/receipt-print";
+import { setupReceiptPrintPage, type ReceiptPaperSize } from "../lib/receipt-print";
 import type { DeliveryType, SaleOrderItem } from "../types";
 
 type CartItem = {
@@ -35,6 +35,7 @@ export function HomeSection({
     deliveryType: DeliveryType;
     deliveryAddress?: string;
     deliveryFee?: number;
+    discountAmount?: number;
     fulfillmentTime?: string;
     orderItems: SaleOrderItem[];
     quantity: number;
@@ -49,6 +50,9 @@ export function HomeSection({
     receipt: true,
     thanks: true,
   });
+  const [receiptPaperSize, setReceiptPaperSize] = useState<ReceiptPaperSize>("80mm");
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+  const [discountAmount, setDiscountAmount] = useState("");
   const [deliveryType, setDeliveryType] = useState<DeliveryType>("retiro");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [deliveryFee, setDeliveryFee] = useState("");
@@ -67,7 +71,10 @@ export function HomeSection({
   );
 
   const deliveryFeeAmount = deliveryType === "delivery" ? Number.parseInt(deliveryFee, 10) || 0 : 0;
-  const orderTotal = cartTotal + deliveryFeeAmount;
+  const discountValue = Math.min(Number.parseInt(discountAmount, 10) || 0, cartTotal);
+  const discountedCartTotal = Math.max(0, cartTotal - discountValue);
+  const orderTotal = discountedCartTotal + deliveryFeeAmount;
+  const receiptPreviewStyle = { "--receipt-width": receiptPaperSize } as CSSProperties;
 
   const createCustomization = (item: OrderMenuItem | CartItem): CartItemCustomization => ({
     id: crypto.randomUUID(),
@@ -287,6 +294,7 @@ export function HomeSection({
       deliveryType,
       deliveryAddress,
       deliveryFee: deliveryFeeAmount,
+      discountAmount: discountValue,
       fulfillmentTime,
       orderItems: buildOrderItems(),
       quantity: cartUnits,
@@ -298,7 +306,7 @@ export function HomeSection({
       return;
     }
 
-    const removeReceiptPageStyle = setupReceiptPrintPage();
+    const removeReceiptPageStyle = setupReceiptPrintPage(receiptPaperSize);
     document.body.classList.add("printing-receipt");
     window.print();
     window.setTimeout(() => {
@@ -308,6 +316,9 @@ export function HomeSection({
       setIsReceiptOpen(false);
       setCartItems([]);
       setPrintSections({ kitchen: true, receipt: true, thanks: true });
+      setReceiptPaperSize("80mm");
+      setIsAdvancedOpen(false);
+      setDiscountAmount("");
       setDeliveryType("retiro");
       setDeliveryAddress("");
       setDeliveryFee("");
@@ -375,6 +386,9 @@ export function HomeSection({
               type="button"
               onClick={() => {
                 setPrintSections({ kitchen: true, receipt: true, thanks: true });
+                setReceiptPaperSize("80mm");
+                setIsAdvancedOpen(false);
+                setDiscountAmount("");
                 setIsReceiptOpen(true);
               }}
               disabled={cartItems.length === 0}
@@ -520,12 +534,15 @@ export function HomeSection({
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-rose-500">Previsualizacion</p>
-                <h3 className="text-xl font-bold text-rose-950">Boleta 80mm</h3>
+                <h3 className="text-xl font-bold text-rose-950">Boleta {receiptPaperSize}</h3>
               </div>
               <button
                 type="button"
                 onClick={() => {
                   setPrintSections({ kitchen: true, receipt: true, thanks: true });
+                  setReceiptPaperSize("80mm");
+                  setIsAdvancedOpen(false);
+                  setDiscountAmount("");
                   setIsReceiptOpen(false);
                 }}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
@@ -537,7 +554,7 @@ export function HomeSection({
 
             <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[calc(80mm+2rem)_minmax(0,1fr)]">
               <div className="min-h-0 overflow-auto rounded-[1.5rem] bg-stone-100 p-4">
-                <div data-receipt-print className="space-y-4">
+                <div data-receipt-print className="space-y-4" style={receiptPreviewStyle}>
                   {printSections.kitchen ? (
                   <div className="receipt-paper mx-auto lg:mx-0">
                     <div className="text-center">
@@ -620,6 +637,7 @@ export function HomeSection({
                       <p>Entrega: {deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
                       {deliveryType === "delivery" && deliveryAddress.trim() ? <p>Direccion: {deliveryAddress.trim()}</p> : null}
                       {deliveryType === "delivery" ? <p>Valor delivery: {formatCurrency(deliveryFeeAmount)}</p> : null}
+                      {discountValue > 0 ? <p>Descuento: -{formatCurrency(discountValue)}</p> : null}
                       {orderDetail.trim() ? <p>Detalle: {orderDetail.trim()}</p> : null}
                     </div>
 
@@ -655,9 +673,26 @@ export function HomeSection({
                           <span>Subtotal</span>
                           <span className="shrink-0 whitespace-nowrap">{formatCurrency(cartTotal)}</span>
                         </div>
+                        {discountValue > 0 ? (
+                          <div className="flex justify-between gap-2">
+                            <span>Descuento</span>
+                            <span className="shrink-0 whitespace-nowrap">-{formatCurrency(discountValue)}</span>
+                          </div>
+                        ) : null}
                         <div className="flex justify-between gap-2">
                           <span>Delivery</span>
                           <span className="shrink-0 whitespace-nowrap">{formatCurrency(deliveryFeeAmount)}</span>
+                        </div>
+                      </div>
+                    ) : discountValue > 0 ? (
+                      <div className="space-y-1 text-xs font-bold">
+                        <div className="flex justify-between gap-2">
+                          <span>Subtotal</span>
+                          <span className="shrink-0 whitespace-nowrap">{formatCurrency(cartTotal)}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span>Descuento</span>
+                          <span className="shrink-0 whitespace-nowrap">-{formatCurrency(discountValue)}</span>
                         </div>
                       </div>
                     ) : null}
@@ -778,13 +813,57 @@ export function HomeSection({
                       ))}
                       {deliveryType === "delivery" ? (
                         <div className="border-t border-rose-100 pt-2">
+                          {discountValue > 0 ? (
+                            <div className="mb-2 flex justify-between gap-3">
+                              <span>Descuento</span>
+                              <span className="font-bold text-rose-600">-{formatCurrency(discountValue)}</span>
+                            </div>
+                          ) : null}
                           <div className="flex justify-between gap-3">
                             <span>Delivery</span>
                             <span className="font-bold">{formatCurrency(deliveryFeeAmount)}</span>
                           </div>
                         </div>
+                      ) : discountValue > 0 ? (
+                        <div className="border-t border-rose-100 pt-2">
+                          <div className="flex justify-between gap-3">
+                            <span>Descuento</span>
+                            <span className="font-bold text-rose-600">-{formatCurrency(discountValue)}</span>
+                          </div>
+                        </div>
                       ) : null}
                     </div>
+                  </div>
+
+                  <div className="rounded-[1.25rem] border border-rose-100 bg-white/70 p-4">
+                    <button
+                      type="button"
+                      onClick={() => setIsAdvancedOpen((current) => !current)}
+                      className="flex w-full items-center justify-between gap-3 text-left"
+                    >
+                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Ajustes avanzados</span>
+                      <span className="text-sm font-black text-fuchsia-700">{isAdvancedOpen ? "-" : "+"}</span>
+                    </button>
+
+                    {isAdvancedOpen ? (
+                      <div className="mt-4 space-y-2">
+                        <label className="block space-y-2">
+                          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Descuento</span>
+                          <input
+                            value={discountAmount}
+                            onChange={(event) => setDiscountAmount(event.target.value.replace(/\D/g, ""))}
+                            inputMode="numeric"
+                            className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                            placeholder="0"
+                          />
+                        </label>
+                        {discountValue > 0 ? (
+                          <p className="text-xs font-semibold text-rose-600">
+                            Total productos con descuento: {formatCurrency(discountedCartTotal)}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 </div>
 
@@ -793,12 +872,32 @@ export function HomeSection({
                     type="button"
                     onClick={() => {
                       setPrintSections({ kitchen: true, receipt: true, thanks: true });
+                      setReceiptPaperSize("80mm");
+                      setIsAdvancedOpen(false);
+                      setDiscountAmount("");
                       setIsReceiptOpen(false);
                     }}
                     className="rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
                   >
                     Cancelar
                   </button>
+                  <div>
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Papel</p>
+                    <div className="grid grid-cols-2 gap-2 rounded-full bg-rose-50 p-1">
+                      {(["80mm", "58mm"] as ReceiptPaperSize[]).map((paperSize) => (
+                        <button
+                          key={paperSize}
+                          type="button"
+                          onClick={() => setReceiptPaperSize(paperSize)}
+                          className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+                            receiptPaperSize === paperSize ? "bg-fuchsia-600 text-white" : "text-rose-700"
+                          }`}
+                        >
+                          {paperSize}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="grid grid-cols-3 gap-2">
                     {[
                       { key: "kitchen", label: "Comanda" },

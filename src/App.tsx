@@ -63,6 +63,7 @@ export default function App() {
         sales={finance.sales}
         onDelete={(id) => void finance.handleDelete("sales", id)}
         onUpdateStatus={(id, status) => void finance.updateSaleStatus(id, status)}
+        onUpdateSale={(id, updates) => void finance.updateSaleDetails(id, updates)}
         onExport={finance.exportSalesCsv}
         onImport={finance.importSalesCsv}
       />

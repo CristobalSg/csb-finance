@@ -22,7 +22,7 @@ export type OrderMenuCategory = {
 
 export const comboDrinkOptions = ["Sprite", "Coca-Cola", "Fanta"];
 
-export const sideSauceOptions = ["Mayonesa", "Ketchup", "Mostaza", "BBQ", "Chick Fill A"];
+export const sideSauceOptions = ["Sin salsa", "Mayonesa", "Ketchup", "Mostaza", "BBQ", "Chick Fill A"];
 
 export const familyComboDescriptions: Record<string, string> = {
   "Combo Familiar": "3 clasicas + 2 bacon",
@@ -80,9 +80,9 @@ export const orderMenuItems: OrderMenuItem[] = [
     sauceOptions: sideSauceOptions,
     removableIngredients: ["Mayonesa", "Tocino", "Lechuga", "Tomate", "Cebolla morada", "Queso cheddar"],
   },
-  { name: "Combo Familiar", price: 10490, category: "family-combos", sauceOptions: sideSauceOptions },
-  { name: "Full Bacon", price: 11490, category: "family-combos", sauceOptions: sideSauceOptions },
-  { name: "Full Clasicas", price: 9490, category: "family-combos", sauceOptions: sideSauceOptions },
+  { name: "Combo Familiar", price: 10490, category: "family-combos" },
+  { name: "Full Bacon", price: 11490, category: "family-combos" },
+  { name: "Full Clasicas", price: 9490, category: "family-combos" },
   {
     name: "Combo Papero Cs-Bacon",
     price: 3890,

@@ -248,8 +248,8 @@ html {
 }
 
 .receipt-paper {
-  width: 80mm;
-  max-width: 80mm;
+  width: var(--receipt-width, 80mm);
+  max-width: var(--receipt-width, 80mm);
   min-height: 0;
   padding: 4mm;
   box-sizing: border-box;
@@ -375,8 +375,8 @@ html {
   }
 
   body.printing-receipt {
-    width: 80mm !important;
-    min-width: 80mm !important;
+    width: var(--receipt-width, 80mm) !important;
+    min-width: var(--receipt-width, 80mm) !important;
     margin: 0 !important;
     padding: 0 !important;
   }
@@ -390,8 +390,9 @@ html {
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
-    width: 80mm !important;
-    max-width: 80mm !important;
+    display: block !important;
+    width: var(--receipt-width, 80mm) !important;
+    max-width: var(--receipt-width, 80mm) !important;
     min-height: auto !important;
     margin: 0 !important;
     padding: 0 !important;
@@ -402,12 +403,14 @@ html {
 
   body.printing-receipt [data-receipt-print].receipt-paper,
   body.printing-receipt [data-receipt-print] .receipt-paper {
-    width: 80mm !important;
-    max-width: 80mm !important;
+    display: block !important;
+    width: var(--receipt-width, 80mm) !important;
+    max-width: var(--receipt-width, 80mm) !important;
     min-height: auto !important;
     margin: 0 !important;
-    padding: 4mm 3.5mm 7mm !important;
+    padding: 4mm var(--receipt-side-padding, 3.5mm) 7mm !important;
     page: receipt;
+    break-before: auto;
     break-after: page;
     page-break-after: always;
     box-shadow: none !important;
