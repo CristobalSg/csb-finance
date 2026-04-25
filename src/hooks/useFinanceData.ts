@@ -626,6 +626,8 @@ export function useFinanceData() {
     total,
     deliveryType,
     deliveryAddress,
+    deliveryFee,
+    fulfillmentTime,
     orderItems,
     quantity,
     productName,
@@ -635,6 +637,8 @@ export function useFinanceData() {
     total: number;
     deliveryType: DeliveryType;
     deliveryAddress?: string;
+    deliveryFee?: number;
+    fulfillmentTime?: string;
     orderItems: SaleOrderItem[];
     quantity: number;
     productName?: string;
@@ -654,6 +658,8 @@ export function useFinanceData() {
       status: "pendiente",
       deliveryType,
       deliveryAddress: deliveryAddress?.trim(),
+      deliveryFee,
+      fulfillmentTime: fulfillmentTime?.trim(),
       quantity,
       productName,
       orderItems,

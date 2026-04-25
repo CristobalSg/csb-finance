@@ -35,6 +35,8 @@ export type Sale = {
   productName?: string;
   deliveryType?: DeliveryType;
   deliveryAddress?: string;
+  deliveryFee?: number;
+  fulfillmentTime?: string;
   orderItems?: SaleOrderItem[];
 };
 

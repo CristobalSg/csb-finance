@@ -55,7 +55,7 @@ export const purchaseRowsToCsv = (rows: Purchase[]) => {
 };
 
 export const salesRowsToCsv = (rows: Sale[]) => {
-  const header = ["FECHA", "CLIENTE", "PEDIDO", "DETALLE", "ENTREGA", "DIRECCION", "TOTAL", "ESTADO"];
+  const header = ["FECHA", "CLIENTE", "PEDIDO", "DETALLE", "ENTREGA", "DIRECCION", "HORA ENTREGA", "DELIVERY", "TOTAL", "ESTADO"];
   const body = rows.map((row) => {
     const orderText =
       row.orderItems
@@ -79,6 +79,8 @@ export const salesRowsToCsv = (rows: Sale[]) => {
       row.detail,
       row.deliveryType ?? "retiro",
       row.deliveryAddress ?? "",
+      row.fulfillmentTime ?? "",
+      row.deliveryFee ?? 0,
       row.total,
       row.status,
     ]

@@ -394,13 +394,33 @@ html {
     max-width: 80mm !important;
     min-height: auto !important;
     margin: 0 !important;
+    padding: 0 !important;
+    page: receipt;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+
+  body.printing-receipt [data-receipt-print].receipt-paper,
+  body.printing-receipt [data-receipt-print] .receipt-paper {
+    width: 80mm !important;
+    max-width: 80mm !important;
+    min-height: auto !important;
+    margin: 0 !important;
     padding: 4mm 3.5mm 7mm !important;
     page: receipt;
+    break-after: page;
+    page-break-after: always;
     box-shadow: none !important;
     font-size: 12px !important;
     font-weight: 600 !important;
     line-height: 1.3 !important;
     overflow: visible !important;
+  }
+
+  body.printing-receipt [data-receipt-print].receipt-paper:last-child,
+  body.printing-receipt [data-receipt-print] .receipt-paper:last-child {
+    break-after: auto;
+    page-break-after: auto;
   }
 
   body.printing-receipt [data-receipt-print] .receipt-cut {

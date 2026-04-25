@@ -34,6 +34,8 @@ export function HomeSection({
     total: number;
     deliveryType: DeliveryType;
     deliveryAddress?: string;
+    deliveryFee?: number;
+    fulfillmentTime?: string;
     orderItems: SaleOrderItem[];
     quantity: number;
     productName?: string;
@@ -42,8 +44,15 @@ export function HomeSection({
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
+  const [printSections, setPrintSections] = useState({
+    kitchen: true,
+    receipt: true,
+    thanks: true,
+  });
   const [deliveryType, setDeliveryType] = useState<DeliveryType>("retiro");
   const [deliveryAddress, setDeliveryAddress] = useState("");
+  const [deliveryFee, setDeliveryFee] = useState("");
+  const [fulfillmentTime, setFulfillmentTime] = useState("");
   const [orderName, setOrderName] = useState("");
   const [orderDetail, setOrderDetail] = useState("");
 
@@ -56,6 +65,9 @@ export function HomeSection({
     () => cartItems.reduce((total, item) => total + item.quantity, 0),
     [cartItems],
   );
+
+  const deliveryFeeAmount = deliveryType === "delivery" ? Number.parseInt(deliveryFee, 10) || 0 : 0;
+  const orderTotal = cartTotal + deliveryFeeAmount;
 
   const createCustomization = (item: OrderMenuItem | CartItem): CartItemCustomization => ({
     id: crypto.randomUUID(),
@@ -171,6 +183,70 @@ export function HomeSection({
     })),
   );
 
+  const kitchenGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        name: string;
+        quantity: number;
+        drinks: string[];
+        sauces: string[];
+        removedIngredients: string[];
+      }
+    >();
+
+    for (const item of receiptItems) {
+      const removedIngredients = [...item.customization.removedIngredients].sort((a, b) => a.localeCompare(b));
+      const key = [
+        item.name,
+        item.customization.drink ?? "",
+        item.customization.sauce ?? "",
+        removedIngredients.join("|"),
+      ].join("::");
+      const existing = groups.get(key);
+
+      if (existing) {
+        existing.quantity += 1;
+        continue;
+      }
+
+      groups.set(key, {
+        name: item.name,
+        quantity: 1,
+        drinks: item.customization.drink ? [item.customization.drink] : [],
+        sauces: item.customization.sauce ? [item.customization.sauce] : [],
+        removedIngredients,
+      });
+    }
+
+    return Array.from(groups.values());
+  }, [receiptItems]);
+
+  const kitchenSummary = useMemo(() => {
+    const drinks = new Map<string, number>();
+    const sauces = new Map<string, number>();
+
+    for (const group of kitchenGroups) {
+      for (const drink of group.drinks) {
+        drinks.set(drink, (drinks.get(drink) ?? 0) + group.quantity);
+      }
+
+      for (const sauce of group.sauces) {
+        sauces.set(sauce, (sauces.get(sauce) ?? 0) + group.quantity);
+      }
+    }
+
+    const fries = receiptItems
+      .filter((item) => item.name.toLowerCase().includes("papa") || item.name.toLowerCase().includes("papita"))
+      .length;
+
+    return {
+      drinks: Array.from(drinks.entries()),
+      sauces: Array.from(sauces.entries()),
+      fries,
+    };
+  }, [kitchenGroups, receiptItems]);
+
   const buildOrderItems = (): SaleOrderItem[] =>
     receiptItems.map((item) => ({
       name: item.name,
@@ -187,8 +263,18 @@ export function HomeSection({
       return;
     }
 
+    if (!printSections.kitchen && !printSections.receipt && !printSections.thanks) {
+      window.alert("Selecciona al menos una hoja para imprimir.");
+      return;
+    }
+
     if (deliveryType === "delivery" && !deliveryAddress.trim()) {
       window.alert("Ingresa la direccion para el delivery antes de confirmar.");
+      return;
+    }
+
+    if (deliveryType === "delivery" && deliveryFeeAmount <= 0) {
+      window.alert("Ingresa el valor del delivery antes de confirmar.");
       return;
     }
 
@@ -197,9 +283,11 @@ export function HomeSection({
     const saved = await onRegisterSale({
       client: orderName,
       detail: orderDetail,
-      total: cartTotal,
+      total: orderTotal,
       deliveryType,
       deliveryAddress,
+      deliveryFee: deliveryFeeAmount,
+      fulfillmentTime,
       orderItems: buildOrderItems(),
       quantity: cartUnits,
       productName,
@@ -219,8 +307,11 @@ export function HomeSection({
       setIsPrinting(false);
       setIsReceiptOpen(false);
       setCartItems([]);
+      setPrintSections({ kitchen: true, receipt: true, thanks: true });
       setDeliveryType("retiro");
       setDeliveryAddress("");
+      setDeliveryFee("");
+      setFulfillmentTime("");
       setOrderName("");
       setOrderDetail("");
     }, 500);
@@ -282,7 +373,10 @@ export function HomeSection({
             </div>
             <button
               type="button"
-              onClick={() => setIsReceiptOpen(true)}
+              onClick={() => {
+                setPrintSections({ kitchen: true, receipt: true, thanks: true });
+                setIsReceiptOpen(true);
+              }}
               disabled={cartItems.length === 0}
               className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-fuchsia-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-300/50 transition hover:bg-fuchsia-700 disabled:cursor-not-allowed disabled:opacity-45"
             >
@@ -430,7 +524,10 @@ export function HomeSection({
               </div>
               <button
                 type="button"
-                onClick={() => setIsReceiptOpen(false)}
+                onClick={() => {
+                  setPrintSections({ kitchen: true, receipt: true, thanks: true });
+                  setIsReceiptOpen(false);
+                }}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
                 aria-label="Cerrar previsualizacion"
               >
@@ -440,52 +537,146 @@ export function HomeSection({
 
             <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[calc(80mm+2rem)_minmax(0,1fr)]">
               <div className="min-h-0 overflow-auto rounded-[1.5rem] bg-stone-100 p-4">
-                <div data-receipt-print className="receipt-paper mx-auto lg:mx-0">
-                  <div className="text-center">
-                    <img src="/receipt-logo.png" alt="Ceese Burger's" className="receipt-logo" />
-                    <p className="mt-1 text-xs font-bold">{new Date().toLocaleString("es-CL")}</p>
-                  </div>
+                <div data-receipt-print className="space-y-4">
+                  {printSections.kitchen ? (
+                  <div className="receipt-paper mx-auto lg:mx-0">
+                    <div className="text-center">
+                      <p className="text-xs font-black uppercase">Comanda</p>
+                      <p className="mt-1 text-[11px] font-bold">{new Date().toLocaleString("es-CL")}</p>
+                      <p className="mt-3 text-3xl font-black leading-none">{fulfillmentTime.trim() || "Ahora"}</p>
+                    </div>
 
-                  <div className="my-3 border-t border-dashed border-black" />
+                    <div className="my-3 border-t border-dashed border-black" />
 
-                  <div className="receipt-cut space-y-1 text-xs font-semibold">
-                    {orderName.trim() ? <p>Nombre: {orderName.trim()}</p> : null}
-                    <p>Pago: Pendiente</p>
-                    <p>Entrega: {deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
-                    {deliveryType === "delivery" && deliveryAddress.trim() ? <p>Direccion: {deliveryAddress.trim()}</p> : null}
-                    {orderDetail.trim() ? <p>Detalle: {orderDetail.trim()}</p> : null}
-                  </div>
+                    <div className="receipt-cut space-y-1 text-xs font-semibold">
+                      {orderName.trim() ? <p>Pedido: {orderName.trim()}</p> : null}
+                      <p>Entrega: {deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
+                      {deliveryType === "delivery" && deliveryAddress.trim() ? <p>Direccion: {deliveryAddress.trim()}</p> : null}
+                      {orderDetail.trim() ? <p>Nota: {orderDetail.trim()}</p> : null}
+                    </div>
 
-                  <div className="my-3 border-t border-dashed border-black" />
+                    <div className="my-3 border-t border-dashed border-black" />
 
-                  <div className="space-y-3">
-                    {receiptItems.map((item) => {
-                      const notes = getCustomizationNotes(item.customization);
-
-                      return (
-                        <div key={`${item.id}-${item.customization.id}`} className="receipt-cut">
-                          <div className="flex justify-between gap-2 text-xs font-bold">
-                            <span className="min-w-0 break-words">1 x {item.unitLabel}</span>
-                            <span className="shrink-0 whitespace-nowrap">{formatCurrency(item.price)}</span>
+                    <div className="space-y-3">
+                      {kitchenGroups.map((group, index) => (
+                        <div key={`${group.name}-${index}`} className="receipt-cut">
+                          <p className="text-sm font-black">
+                            {group.quantity} x {group.name}
+                          </p>
+                          <div className="mt-1 space-y-0.5 text-xs font-semibold">
+                            {group.removedIngredients.length > 0 ? <p>Sin: {group.removedIngredients.join(", ")}</p> : null}
+                            {group.drinks.length > 0 ? <p>Bebida: {group.drinks.join(", ")}</p> : null}
+                            {group.sauces.length > 0 ? <p>Salsa: {group.sauces.join(", ")}</p> : null}
                           </div>
-                          {notes.length > 0 ? (
-                            <div className="mt-1 space-y-0.5 text-[11px] font-semibold leading-4">
-                              {notes.map((note) => (
-                                <p key={note}>{note}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {(kitchenSummary.drinks.length > 0 || kitchenSummary.sauces.length > 0 || kitchenSummary.fries > 0) ? (
+                      <>
+                        <div className="my-3 border-t border-dashed border-black" />
+                        <div className="receipt-cut space-y-2 text-xs font-bold">
+                          {kitchenSummary.fries > 0 ? <p>Papas: {kitchenSummary.fries}</p> : null}
+                          {kitchenSummary.drinks.length > 0 ? (
+                            <div>
+                              <p className="font-black uppercase">Bebidas</p>
+                              {kitchenSummary.drinks.map(([drink, quantity]) => (
+                                <p key={drink}>
+                                  {quantity} x {drink}
+                                </p>
+                              ))}
+                            </div>
+                          ) : null}
+                          {kitchenSummary.sauces.length > 0 ? (
+                            <div>
+                              <p className="font-black uppercase">Salsas</p>
+                              {kitchenSummary.sauces.map(([sauce, quantity]) => (
+                                <p key={sauce}>
+                                  {quantity} x {sauce}
+                                </p>
                               ))}
                             </div>
                           ) : null}
                         </div>
-                      );
-                    })}
+                      </>
+                    ) : null}
                   </div>
+                  ) : null}
 
-                  <div className="my-3 border-t border-dashed border-black" />
+                  {printSections.receipt ? (
+                  <div className="receipt-paper mx-auto lg:mx-0">
+                    <div className="text-center">
+                      <img src="/receipt-logo.png" alt="Ceese Burger's" className="receipt-logo" />
+                      <p className="mt-1 text-xs font-bold">{new Date().toLocaleString("es-CL")}</p>
+                    </div>
 
-                  <div className="flex justify-between text-sm font-black">
-                    <span>Total</span>
-                    <span className="shrink-0 whitespace-nowrap">{formatCurrency(cartTotal)}</span>
+                    <div className="my-3 border-t border-dashed border-black" />
+
+                    <div className="receipt-cut space-y-1 text-xs font-semibold">
+                      {orderName.trim() ? <p>Nombre: {orderName.trim()}</p> : null}
+                      {fulfillmentTime.trim() ? <p>Hora entrega: {fulfillmentTime.trim()}</p> : null}
+                      <p>Pago: Pendiente</p>
+                      <p>Entrega: {deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
+                      {deliveryType === "delivery" && deliveryAddress.trim() ? <p>Direccion: {deliveryAddress.trim()}</p> : null}
+                      {deliveryType === "delivery" ? <p>Valor delivery: {formatCurrency(deliveryFeeAmount)}</p> : null}
+                      {orderDetail.trim() ? <p>Detalle: {orderDetail.trim()}</p> : null}
+                    </div>
+
+                    <div className="my-3 border-t border-dashed border-black" />
+
+                    <div className="space-y-3">
+                      {receiptItems.map((item) => {
+                        const notes = getCustomizationNotes(item.customization);
+
+                        return (
+                          <div key={`${item.id}-${item.customization.id}`} className="receipt-cut">
+                            <div className="flex justify-between gap-2 text-xs font-bold">
+                              <span className="min-w-0 break-words">1 x {item.unitLabel}</span>
+                              <span className="shrink-0 whitespace-nowrap">{formatCurrency(item.price)}</span>
+                            </div>
+                            {notes.length > 0 ? (
+                              <div className="mt-1 space-y-0.5 text-[11px] font-semibold leading-4">
+                                {notes.map((note) => (
+                                  <p key={note}>{note}</p>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="my-3 border-t border-dashed border-black" />
+
+                    {deliveryType === "delivery" ? (
+                      <div className="space-y-1 text-xs font-bold">
+                        <div className="flex justify-between gap-2">
+                          <span>Subtotal</span>
+                          <span className="shrink-0 whitespace-nowrap">{formatCurrency(cartTotal)}</span>
+                        </div>
+                        <div className="flex justify-between gap-2">
+                          <span>Delivery</span>
+                          <span className="shrink-0 whitespace-nowrap">{formatCurrency(deliveryFeeAmount)}</span>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    <div className="mt-2 flex justify-between text-sm font-black">
+                      <span>Total</span>
+                      <span className="shrink-0 whitespace-nowrap">{formatCurrency(orderTotal)}</span>
+                    </div>
                   </div>
+                  ) : null}
+
+                  {printSections.thanks ? (
+                  <div className="receipt-paper mx-auto lg:mx-0">
+                    <div className="flex min-h-[48mm] flex-col items-center justify-center text-center">
+                      <p className="text-xl font-black uppercase leading-tight">Muchas gracias</p>
+                      <p className="mt-2 text-sm font-bold">Que las disfrute</p>
+                      <p className="mt-3 text-base font-black uppercase">Ceese Burger's</p>
+                    </div>
+                  </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -493,50 +684,75 @@ export function HomeSection({
                 <div className="min-h-0 flex-1 space-y-4 overflow-auto pr-1">
                   <div>
                     <p className="text-sm font-medium text-rose-500">Detalle del pedido</p>
-                    <p className="mt-1 text-2xl font-black text-rose-950">{formatCurrency(cartTotal)}</p>
+                    <p className="mt-1 text-2xl font-black text-rose-950">{formatCurrency(orderTotal)}</p>
                   </div>
 
-                  <label className="block space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Nombre pedido</span>
-                    <input
-                      value={orderName}
-                      onChange={(event) => setOrderName(event.target.value)}
-                      className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
-                      placeholder="Opcional"
-                    />
-                  </label>
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_160px_220px]">
+                    <label className="block space-y-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Nombre pedido</span>
+                      <input
+                        value={orderName}
+                        onChange={(event) => setOrderName(event.target.value)}
+                        className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                        placeholder="Opcional"
+                      />
+                    </label>
 
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Entrega</p>
-                    <div className="mt-2 grid grid-cols-2 gap-2 rounded-full bg-rose-50 p-1">
-                      {[
-                        { value: "retiro", label: "Retiro" },
-                        { value: "delivery", label: "Delivery" },
-                      ].map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          onClick={() => setDeliveryType(option.value as DeliveryType)}
-                          className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
-                            deliveryType === option.value ? "bg-fuchsia-600 text-white" : "text-rose-700"
-                          }`}
-                        >
-                          {option.label}
-                        </button>
-                      ))}
+                    <label className="block space-y-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Hora entrega</span>
+                      <input
+                        value={fulfillmentTime}
+                        onChange={(event) => setFulfillmentTime(event.target.value)}
+                        className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                        placeholder="20:00"
+                      />
+                    </label>
+
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Entrega</p>
+                      <div className="mt-2 grid grid-cols-2 gap-2 rounded-full bg-rose-50 p-1">
+                        {[
+                          { value: "retiro", label: "Retiro" },
+                          { value: "delivery", label: "Delivery" },
+                        ].map((option) => (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => setDeliveryType(option.value as DeliveryType)}
+                            className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+                              deliveryType === option.value ? "bg-fuchsia-600 text-white" : "text-rose-700"
+                            }`}
+                          >
+                            {option.label}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
                   {deliveryType === "delivery" ? (
-                    <label className="block space-y-2">
-                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Direccion delivery</span>
-                      <input
-                        value={deliveryAddress}
-                        onChange={(event) => setDeliveryAddress(event.target.value)}
-                        className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
-                        placeholder="Calle, numero, referencia"
-                      />
-                    </label>
+                    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+                      <label className="block space-y-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Direccion delivery</span>
+                        <input
+                          value={deliveryAddress}
+                          onChange={(event) => setDeliveryAddress(event.target.value)}
+                          className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                          placeholder="Calle, numero, referencia"
+                        />
+                      </label>
+
+                      <label className="block space-y-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Valor delivery</span>
+                        <input
+                          value={deliveryFee}
+                          onChange={(event) => setDeliveryFee(event.target.value.replace(/\D/g, ""))}
+                          inputMode="numeric"
+                          className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                          placeholder="0"
+                        />
+                      </label>
+                    </div>
                   ) : null}
 
                   <label className="block space-y-2">
@@ -559,6 +775,14 @@ export function HomeSection({
                           <span className="font-bold">{formatCurrency(item.price)}</span>
                         </div>
                       ))}
+                      {deliveryType === "delivery" ? (
+                        <div className="border-t border-rose-100 pt-2">
+                          <div className="flex justify-between gap-3">
+                            <span>Delivery</span>
+                            <span className="font-bold">{formatCurrency(deliveryFeeAmount)}</span>
+                          </div>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </div>
@@ -566,11 +790,39 @@ export function HomeSection({
                 <div className="mt-4 flex flex-col-reverse gap-3 border-t border-rose-100 pt-4">
                   <button
                     type="button"
-                    onClick={() => setIsReceiptOpen(false)}
+                    onClick={() => {
+                      setPrintSections({ kitchen: true, receipt: true, thanks: true });
+                      setIsReceiptOpen(false);
+                    }}
                     className="rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
                   >
                     Cancelar
                   </button>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { key: "kitchen", label: "Comanda" },
+                      { key: "receipt", label: "Boleta" },
+                      { key: "thanks", label: "Gracias" },
+                    ].map((option) => (
+                      <label
+                        key={option.key}
+                        className="flex items-center justify-center gap-2 rounded-full border border-rose-200 bg-rose-50/60 px-3 py-2 text-xs font-bold text-rose-800"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={printSections[option.key as keyof typeof printSections]}
+                          onChange={(event) =>
+                            setPrintSections((current) => ({
+                              ...current,
+                              [option.key]: event.target.checked,
+                            }))
+                          }
+                          className="h-4 w-4 accent-fuchsia-600"
+                        />
+                        <span>{option.label}</span>
+                      </label>
+                    ))}
+                  </div>
                   <button
                     type="button"
                     onClick={handleConfirmPrint}

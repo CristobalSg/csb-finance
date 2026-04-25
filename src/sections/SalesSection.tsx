@@ -35,6 +35,66 @@ const truncateText = (text: string, maxLength = 42) => {
   return `${text.slice(0, maxLength).trimEnd()}...`;
 };
 
+const getKitchenGroups = (items: SaleOrderItem[]) => {
+  const groups = new Map<
+    string,
+    {
+      name: string;
+      quantity: number;
+      drinks: string[];
+      sauces: string[];
+      removedIngredients: string[];
+    }
+  >();
+
+  for (const item of items) {
+    const removedIngredients = [...(item.removedIngredients ?? [])].sort((a, b) => a.localeCompare(b));
+    const key = [item.name, item.drink ?? "", item.sauce ?? "", removedIngredients.join("|")].join("::");
+    const existing = groups.get(key);
+
+    if (existing) {
+      existing.quantity += item.quantity;
+      continue;
+    }
+
+    groups.set(key, {
+      name: item.name,
+      quantity: item.quantity,
+      drinks: item.drink ? [item.drink] : [],
+      sauces: item.sauce ? [item.sauce] : [],
+      removedIngredients,
+    });
+  }
+
+  return Array.from(groups.values());
+};
+
+const getKitchenSummary = (items: SaleOrderItem[]) => {
+  const drinks = new Map<string, number>();
+  const sauces = new Map<string, number>();
+  let fries = 0;
+
+  for (const item of items) {
+    if (item.name.toLowerCase().includes("papa") || item.name.toLowerCase().includes("papita")) {
+      fries += item.quantity;
+    }
+
+    if (item.drink) {
+      drinks.set(item.drink, (drinks.get(item.drink) ?? 0) + item.quantity);
+    }
+
+    if (item.sauce) {
+      sauces.set(item.sauce, (sauces.get(item.sauce) ?? 0) + item.quantity);
+    }
+  }
+
+  return {
+    drinks: Array.from(drinks.entries()),
+    sauces: Array.from(sauces.entries()),
+    fries,
+  };
+};
+
 export function SalesSection({
   loading,
   sales,
@@ -101,63 +161,155 @@ export function SalesSection({
   };
 
   const receiptItems = receiptSale ? formatSaleOrderItems(receiptSale) : [];
+  const kitchenGroups = getKitchenGroups(receiptItems);
+  const kitchenSummary = getKitchenSummary(receiptItems);
 
   return (
     <section id="ventas" className="flex h-full min-h-0 flex-col space-y-4">
       {receiptSale ? (
-        <div data-receipt-print className="receipt-paper pointer-events-none fixed left-[-9999px] top-0">
-          <div className="text-center">
-            <img src="/receipt-logo.png" alt="Ceese Burger's" className="receipt-logo" />
-            <p className="mt-1 text-xs font-bold">{new Date(receiptSale.createdAt).toLocaleString("es-CL")}</p>
-          </div>
+        <div data-receipt-print className="pointer-events-none fixed left-[-9999px] top-0">
+          <div className="receipt-paper">
+            <div className="text-center">
+              <p className="text-xs font-black uppercase">Comanda</p>
+              <p className="mt-1 text-[11px] font-bold">{new Date(receiptSale.createdAt).toLocaleString("es-CL")}</p>
+              <p className="mt-3 text-3xl font-black leading-none">{receiptSale.fulfillmentTime?.trim() || "Ahora"}</p>
+            </div>
 
-          <div className="my-3 border-t border-dashed border-black" />
+            <div className="my-3 border-t border-dashed border-black" />
 
-          <div className="receipt-cut space-y-1 text-xs font-semibold">
-            {receiptSale.client.trim() ? <p>Nombre: {receiptSale.client.trim()}</p> : null}
-            <p>Pago: {saleStatusLabels[receiptSale.status]}</p>
-            <p>Entrega: {receiptSale.deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
-            {receiptSale.deliveryType === "delivery" && receiptSale.deliveryAddress?.trim() ? (
-              <p>Direccion: {receiptSale.deliveryAddress.trim()}</p>
-            ) : null}
-            {receiptSale.detail.trim() ? <p>Detalle: {receiptSale.detail.trim()}</p> : null}
-          </div>
+            <div className="receipt-cut space-y-1 text-xs font-semibold">
+              {receiptSale.client.trim() ? <p>Pedido: {receiptSale.client.trim()}</p> : null}
+              <p>Entrega: {receiptSale.deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
+              {receiptSale.deliveryType === "delivery" && receiptSale.deliveryAddress?.trim() ? (
+                <p>Direccion: {receiptSale.deliveryAddress.trim()}</p>
+              ) : null}
+              {receiptSale.detail.trim() ? <p>Nota: {receiptSale.detail.trim()}</p> : null}
+            </div>
 
-          <div className="my-3 border-t border-dashed border-black" />
+            <div className="my-3 border-t border-dashed border-black" />
 
-          <div className="space-y-3">
-            {receiptItems.map((item, index) => {
-              const notes = [
-                item.drink ? `Bebida: ${item.drink}` : "",
-                item.sauce ? `Salsa: ${item.sauce}` : "",
-                item.removedIngredients?.length ? `Sin: ${item.removedIngredients.join(", ")}` : "",
-              ].filter(Boolean);
-
-              return (
-                <div key={`${receiptSale.id}-receipt-${item.name}-${index}`} className="receipt-cut">
-                  <div className="flex justify-between gap-2 text-xs font-bold">
-                    <span className="min-w-0 break-words">
-                      {item.quantity} x {item.name}
-                    </span>
-                    <span className="shrink-0 whitespace-nowrap">{formatCurrency(item.total)}</span>
+            <div className="space-y-3">
+              {kitchenGroups.map((group, index) => (
+                <div key={`${group.name}-${index}`} className="receipt-cut">
+                  <p className="text-sm font-black">
+                    {group.quantity} x {group.name}
+                  </p>
+                  <div className="mt-1 space-y-0.5 text-xs font-semibold">
+                    {group.removedIngredients.length > 0 ? <p>Sin: {group.removedIngredients.join(", ")}</p> : null}
+                    {group.drinks.length > 0 ? <p>Bebida: {group.drinks.join(", ")}</p> : null}
+                    {group.sauces.length > 0 ? <p>Salsa: {group.sauces.join(", ")}</p> : null}
                   </div>
-                  {notes.length > 0 ? (
-                    <div className="mt-1 space-y-0.5 text-[11px] font-semibold leading-4">
-                      {notes.map((note) => (
-                        <p key={note}>{note}</p>
+                </div>
+              ))}
+            </div>
+
+            {kitchenSummary.drinks.length > 0 || kitchenSummary.sauces.length > 0 || kitchenSummary.fries > 0 ? (
+              <>
+                <div className="my-3 border-t border-dashed border-black" />
+                <div className="receipt-cut space-y-2 text-xs font-bold">
+                  {kitchenSummary.fries > 0 ? <p>Papas: {kitchenSummary.fries}</p> : null}
+                  {kitchenSummary.drinks.length > 0 ? (
+                    <div>
+                      <p className="font-black uppercase">Bebidas</p>
+                      {kitchenSummary.drinks.map(([drink, quantity]) => (
+                        <p key={drink}>
+                          {quantity} x {drink}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                  {kitchenSummary.sauces.length > 0 ? (
+                    <div>
+                      <p className="font-black uppercase">Salsas</p>
+                      {kitchenSummary.sauces.map(([sauce, quantity]) => (
+                        <p key={sauce}>
+                          {quantity} x {sauce}
+                        </p>
                       ))}
                     </div>
                   ) : null}
                 </div>
-              );
-            })}
+              </>
+            ) : null}
           </div>
 
-          <div className="my-3 border-t border-dashed border-black" />
+          <div className="receipt-paper">
+            <div className="text-center">
+              <img src="/receipt-logo.png" alt="Ceese Burger's" className="receipt-logo" />
+              <p className="mt-1 text-xs font-bold">{new Date(receiptSale.createdAt).toLocaleString("es-CL")}</p>
+            </div>
 
-          <div className="flex justify-between text-sm font-black">
-            <span>Total</span>
-            <span className="shrink-0 whitespace-nowrap">{formatCurrency(receiptSale.total)}</span>
+            <div className="my-3 border-t border-dashed border-black" />
+
+            <div className="receipt-cut space-y-1 text-xs font-semibold">
+              {receiptSale.client.trim() ? <p>Nombre: {receiptSale.client.trim()}</p> : null}
+              {receiptSale.fulfillmentTime?.trim() ? <p>Hora entrega: {receiptSale.fulfillmentTime.trim()}</p> : null}
+              <p>Pago: {saleStatusLabels[receiptSale.status]}</p>
+              <p>Entrega: {receiptSale.deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
+              {receiptSale.deliveryType === "delivery" && receiptSale.deliveryAddress?.trim() ? (
+                <p>Direccion: {receiptSale.deliveryAddress.trim()}</p>
+              ) : null}
+              {receiptSale.deliveryType === "delivery" ? <p>Valor delivery: {formatCurrency(receiptSale.deliveryFee ?? 0)}</p> : null}
+              {receiptSale.detail.trim() ? <p>Detalle: {receiptSale.detail.trim()}</p> : null}
+            </div>
+
+            <div className="my-3 border-t border-dashed border-black" />
+
+            <div className="space-y-3">
+              {receiptItems.map((item, index) => {
+                const notes = [
+                  item.drink ? `Bebida: ${item.drink}` : "",
+                  item.sauce ? `Salsa: ${item.sauce}` : "",
+                  item.removedIngredients?.length ? `Sin: ${item.removedIngredients.join(", ")}` : "",
+                ].filter(Boolean);
+
+                return (
+                  <div key={`${receiptSale.id}-receipt-${item.name}-${index}`} className="receipt-cut">
+                    <div className="flex justify-between gap-2 text-xs font-bold">
+                      <span className="min-w-0 break-words">
+                        {item.quantity} x {item.name}
+                      </span>
+                      <span className="shrink-0 whitespace-nowrap">{formatCurrency(item.total)}</span>
+                    </div>
+                    {notes.length > 0 ? (
+                      <div className="mt-1 space-y-0.5 text-[11px] font-semibold leading-4">
+                        {notes.map((note) => (
+                          <p key={note}>{note}</p>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="my-3 border-t border-dashed border-black" />
+
+            {receiptSale.deliveryType === "delivery" ? (
+              <div className="space-y-1 text-xs font-bold">
+                <div className="flex justify-between gap-2">
+                  <span>Subtotal</span>
+                  <span className="shrink-0 whitespace-nowrap">{formatCurrency(receiptSale.total - (receiptSale.deliveryFee ?? 0))}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span>Delivery</span>
+                  <span className="shrink-0 whitespace-nowrap">{formatCurrency(receiptSale.deliveryFee ?? 0)}</span>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="mt-2 flex justify-between text-sm font-black">
+              <span>Total</span>
+              <span className="shrink-0 whitespace-nowrap">{formatCurrency(receiptSale.total)}</span>
+            </div>
+          </div>
+
+          <div className="receipt-paper">
+            <div className="flex min-h-[48mm] flex-col items-center justify-center text-center">
+              <p className="text-xl font-black uppercase leading-tight">Muchas gracias</p>
+              <p className="mt-2 text-sm font-bold">Que las disfrute</p>
+              <p className="mt-3 text-base font-black uppercase">Ceese Burger's</p>
+            </div>
           </div>
         </div>
       ) : null}
@@ -241,8 +393,12 @@ export function SalesSection({
                           </td>
                           <td className="py-4 pr-4">
                             <p className="font-semibold">{sale.deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
+                            {sale.fulfillmentTime ? <p className="mt-1 text-xs font-bold text-rose-950">Hora: {sale.fulfillmentTime}</p> : null}
                             {sale.deliveryType === "delivery" && sale.deliveryAddress ? (
                               <p className="mt-1 text-xs text-rose-700/80">{sale.deliveryAddress}</p>
+                            ) : null}
+                            {sale.deliveryType === "delivery" ? (
+                              <p className="mt-1 text-xs font-semibold text-fuchsia-700">{formatCurrency(sale.deliveryFee ?? 0)}</p>
                             ) : null}
                           </td>
                           <td className="py-4 pr-4 font-bold text-fuchsia-700">{formatCurrency(sale.total)}</td>
