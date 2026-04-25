@@ -884,7 +884,7 @@ export function HomeSection({
                   <div>
                     <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Papel</p>
                     <div className="grid grid-cols-2 gap-2 rounded-full bg-rose-50 p-1">
-                      {(["80mm", "58mm"] as ReceiptPaperSize[]).map((paperSize) => (
+                      {(["80mm", "56mm"] as ReceiptPaperSize[]).map((paperSize) => (
                         <button
                           key={paperSize}
                           type="button"

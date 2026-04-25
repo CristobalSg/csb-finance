@@ -188,7 +188,7 @@ export function SalesSection({
   const [receiptPrintSections, setReceiptPrintSections] = useState(defaultReceiptPrintSections);
   const [receiptPaperSize, setReceiptPaperSize] = useState<ReceiptPaperSize>("80mm");
   const [dailyReportDate, setDailyReportDate] = useState(getDateInputValue);
-  const [dailyReportPaperSize, setDailyReportPaperSize] = useState<ReceiptPaperSize>("58mm");
+  const [dailyReportPaperSize, setDailyReportPaperSize] = useState<ReceiptPaperSize>("56mm");
   const [isDailyReportOpen, setIsDailyReportOpen] = useState(false);
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
   const [saleEditForm, setSaleEditForm] = useState<SaleEditForm>({
@@ -637,7 +637,7 @@ export function SalesSection({
             <div className="mt-4">
               <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Papel</p>
               <div className="grid grid-cols-2 gap-2 rounded-full bg-rose-50 p-1">
-                {(["80mm", "58mm"] as ReceiptPaperSize[]).map((paperSize) => (
+                {(["80mm", "56mm"] as ReceiptPaperSize[]).map((paperSize) => (
                   <button
                     key={paperSize}
                     type="button"
@@ -685,7 +685,7 @@ export function SalesSection({
                 type="button"
                 onClick={() => {
                   setIsDailyReportOpen(false);
-                  setDailyReportPaperSize("58mm");
+                  setDailyReportPaperSize("56mm");
                 }}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
                 aria-label="Cerrar cierre diario"
@@ -712,7 +712,7 @@ export function SalesSection({
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Papel</p>
                 <div className="mt-2 grid grid-cols-2 gap-2 rounded-full bg-rose-50 p-1">
-                  {(["58mm", "80mm"] as ReceiptPaperSize[]).map((paperSize) => (
+                  {(["56mm", "80mm"] as ReceiptPaperSize[]).map((paperSize) => (
                     <button
                       key={paperSize}
                       type="button"
@@ -765,7 +765,7 @@ export function SalesSection({
                 type="button"
                 onClick={() => {
                   setIsDailyReportOpen(false);
-                  setDailyReportPaperSize("58mm");
+                  setDailyReportPaperSize("56mm");
                 }}
                 className="rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
               >
@@ -918,7 +918,7 @@ export function SalesSection({
           type="button"
           onClick={() => {
             setDailyReportDate(getDateInputValue());
-            setDailyReportPaperSize("58mm");
+            setDailyReportPaperSize("56mm");
             setIsDailyReportOpen(true);
           }}
           className="inline-flex items-center gap-2 rounded-full border border-fuchsia-200 bg-fuchsia-50 px-5 py-3 text-sm font-semibold text-fuchsia-700 transition hover:border-fuchsia-300 hover:bg-white"
