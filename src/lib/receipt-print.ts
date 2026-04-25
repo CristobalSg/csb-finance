@@ -2,9 +2,9 @@ const RECEIPT_PRINT_STYLE_ID = "receipt-print-page-style";
 
 export type ReceiptPaperSize = "80mm" | "58mm";
 
-const receiptPaperSidePadding: Record<ReceiptPaperSize, string> = {
-  "80mm": "3.5mm",
-  "58mm": "2.5mm",
+const receiptPaperPadding: Record<ReceiptPaperSize, { left: string; right: string }> = {
+  "80mm": { left: "3.5mm", right: "3.5mm" },
+  "58mm": { left: "6mm", right: "5mm" },
 };
 
 export const setupReceiptPrintPage = (paperSize: ReceiptPaperSize = "80mm") => {
@@ -26,7 +26,8 @@ export const setupReceiptPrintPage = (paperSize: ReceiptPaperSize = "80mm") => {
 
     body.printing-receipt {
       --receipt-width: ${paperSize};
-      --receipt-side-padding: ${receiptPaperSidePadding[paperSize]};
+      --receipt-left-padding: ${receiptPaperPadding[paperSize].left};
+      --receipt-right-padding: ${receiptPaperPadding[paperSize].right};
     }
   `;
 
