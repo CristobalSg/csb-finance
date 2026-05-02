@@ -79,7 +79,7 @@ export function AppHeader({
             </button>
 
             {isOptionsOpen ? (
-              <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 min-w-64 rounded-[1.5rem] border border-rose-100 bg-white p-2 shadow-[0_24px_80px_rgba(190,24,93,0.18)]">
+              <div className="absolute right-0 top-[calc(100%+0.75rem)] z-30 min-w-64 rounded-[1.5rem] border border-rose-100 bg-white p-2 shadow-[0_24px_80px_var(--app-shadow)]">
                 <button
                   type="button"
                   role="menuitem"

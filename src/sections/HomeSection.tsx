@@ -2,7 +2,13 @@ import { type CSSProperties, useMemo, useState } from "react";
 
 import { PrintIcon, XIcon } from "../components/icons";
 import { shellCardClass } from "../constants/app";
-import { familyComboDescriptions, orderMenuCategories, orderMenuItems, type OrderMenuItem } from "../data/order-menu";
+import {
+  familyComboBurgers,
+  familyComboDescriptions,
+  orderMenuCategories,
+  orderMenuItems,
+  type OrderMenuItem,
+} from "../data/order-menu";
 import { formatCurrency } from "../lib/format";
 import { setupReceiptPrintPage, type ReceiptPaperSize } from "../lib/receipt-print";
 import type { DeliveryType, SaleOrderItem } from "../types";
@@ -22,6 +28,15 @@ type CartItemCustomization = {
   id: string;
   drink?: string;
   sauce?: string;
+  removedIngredients: string[];
+  familyBurgers?: CartItemFamilyBurger[];
+};
+
+type CartItemFamilyBurger = {
+  id: string;
+  label: string;
+  name: string;
+  removableIngredients: string[];
   removedIngredients: string[];
 };
 
@@ -76,16 +91,29 @@ export function HomeSection({
   const orderTotal = discountedCartTotal + deliveryFeeAmount;
   const receiptPreviewStyle = { "--receipt-width": receiptPaperSize } as CSSProperties;
 
-  const createCustomization = (item: OrderMenuItem | CartItem): CartItemCustomization => ({
-    id: crypto.randomUUID(),
-    drink: item.drinkOptions?.[0],
-    sauce: item.sauceOptions?.[0],
-    removedIngredients: [],
-  });
+  const createFamilyBurgerCustomization = (itemName: string) =>
+    familyComboBurgers[itemName]?.map((burger) => ({
+      id: crypto.randomUUID(),
+      label: burger.label,
+      name: burger.name,
+      removableIngredients: burger.removableIngredients,
+      removedIngredients: [],
+    }));
+
+  const createCustomization = (item: OrderMenuItem | CartItem): CartItemCustomization => {
+    const familyBurgersForItem = createFamilyBurgerCustomization(item.name);
+
+    return {
+      id: crypto.randomUUID(),
+      drink: item.drinkOptions?.[0],
+      sauce: item.sauceOptions?.[0],
+      removedIngredients: [],
+      familyBurgers: familyBurgersForItem,
+    };
+  };
 
   const addItem = (item: OrderMenuItem) => {
     setCartItems((current) => [
-      ...current,
       {
         id: crypto.randomUUID(),
         name: item.name,
@@ -96,6 +124,7 @@ export function HomeSection({
         sauceOptions: item.sauceOptions,
         removableIngredients: item.removableIngredients,
       },
+      ...current,
     ]);
   };
 
@@ -164,6 +193,53 @@ export function HomeSection({
     );
   };
 
+  const toggleFamilyBurgerRemovedIngredient = (
+    itemId: string,
+    customizationId: string,
+    burgerId: string,
+    ingredient: string,
+  ) => {
+    setCartItems((current) =>
+      current.map((item) => {
+        if (item.id !== itemId) {
+          return item;
+        }
+
+        return {
+          ...item,
+          customizations: item.customizations.map((customization) => {
+            if (customization.id !== customizationId) {
+              return customization;
+            }
+
+            return {
+              ...customization,
+              familyBurgers: customization.familyBurgers?.map((burger) => {
+                if (burger.id !== burgerId) {
+                  return burger;
+                }
+
+                const shouldRemove = !burger.removedIngredients.includes(ingredient);
+
+                return {
+                  ...burger,
+                  removedIngredients: shouldRemove
+                    ? [...burger.removedIngredients, ingredient]
+                    : burger.removedIngredients.filter((currentIngredient) => currentIngredient !== ingredient),
+                };
+              }),
+            };
+          }),
+        };
+      }),
+    );
+  };
+
+  const getFamilyBurgerNotes = (customization: Pick<CartItemCustomization, "familyBurgers">) =>
+    customization.familyBurgers
+      ?.filter((burger) => burger.removedIngredients.length > 0)
+      .map((burger) => `${burger.label}: sin ${burger.removedIngredients.join(", ")}`) ?? [];
+
   const getCustomizationNotes = (customization: CartItemCustomization) => {
     const notes = [];
 
@@ -178,6 +254,8 @@ export function HomeSection({
     if (customization.removedIngredients.length > 0) {
       notes.push(`Sin: ${customization.removedIngredients.join(", ")}`);
     }
+
+    notes.push(...getFamilyBurgerNotes(customization));
 
     return notes;
   };
@@ -199,16 +277,19 @@ export function HomeSection({
         drinks: string[];
         sauces: string[];
         removedIngredients: string[];
+        familyBurgerNotes: string[];
       }
     >();
 
     for (const item of receiptItems) {
       const removedIngredients = [...item.customization.removedIngredients].sort((a, b) => a.localeCompare(b));
+      const familyBurgerNotes = getFamilyBurgerNotes(item.customization);
       const key = [
         item.name,
         item.customization.drink ?? "",
         item.customization.sauce ?? "",
         removedIngredients.join("|"),
+        familyBurgerNotes.join("|"),
       ].join("::");
       const existing = groups.get(key);
 
@@ -223,6 +304,7 @@ export function HomeSection({
         drinks: item.customization.drink ? [item.customization.drink] : [],
         sauces: item.customization.sauce ? [item.customization.sauce] : [],
         removedIngredients,
+        familyBurgerNotes,
       });
     }
 
@@ -263,6 +345,11 @@ export function HomeSection({
       drink: item.customization.drink,
       sauce: item.customization.sauce,
       removedIngredients: item.customization.removedIngredients,
+      familyBurgers: item.customization.familyBurgers?.map((burger) => ({
+        label: burger.label,
+        name: burger.name,
+        removedIngredients: burger.removedIngredients,
+      })),
     }));
 
   const handleConfirmPrint = async () => {
@@ -306,12 +393,27 @@ export function HomeSection({
       return;
     }
 
+    const receiptPreview = document.querySelector("[data-receipt-preview]");
+    const receiptPrintNode = receiptPreview?.cloneNode(true) as HTMLElement | undefined;
+
+    if (!receiptPrintNode) {
+      window.alert("No se pudo preparar la impresion de la boleta.");
+      setIsPrinting(false);
+      return;
+    }
+
+    receiptPrintNode.removeAttribute("data-receipt-preview");
+    receiptPrintNode.setAttribute("data-receipt-print", "");
+    receiptPrintNode.className = "";
+    document.body.appendChild(receiptPrintNode);
+
     const removeReceiptPageStyle = setupReceiptPrintPage(receiptPaperSize);
     document.body.classList.add("printing-receipt");
     window.print();
     window.setTimeout(() => {
       document.body.classList.remove("printing-receipt");
       removeReceiptPageStyle();
+      receiptPrintNode.remove();
       setIsPrinting(false);
       setIsReceiptOpen(false);
       setCartItems([]);
@@ -329,9 +431,9 @@ export function HomeSection({
   };
 
   return (
-    <section className="flex h-full min-h-0 flex-col space-y-4 overflow-auto pr-1">
-      <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <section className={`${shellCardClass} flex min-h-[26rem] flex-col overflow-hidden`}>
+    <section className="flex h-full min-h-0 flex-col space-y-4 overflow-auto pr-1 lg:overflow-hidden">
+      <div className="grid h-full min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:overflow-hidden">
+        <section className={`${shellCardClass} flex min-h-[26rem] flex-col overflow-hidden lg:min-h-0`}>
           <div className="flex flex-col gap-2 border-b border-rose-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-medium text-rose-500">Menu</p>
@@ -342,7 +444,7 @@ export function HomeSection({
             </span>
           </div>
 
-          <div className="mt-5 space-y-6 overflow-auto pr-1">
+          <div className="mt-5 min-h-0 flex-1 space-y-6 overflow-auto pr-1">
             {orderMenuCategories.map((category) => (
               <div key={category.id}>
                 <h4 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-rose-500">{category.label}</h4>
@@ -363,24 +465,25 @@ export function HomeSection({
                 </div>
               </div>
             ))}
+            <footer data-print-hidden className="rounded-[1.5rem] border border-white/70 bg-white/70 px-5 py-4 text-sm text-rose-700 shadow-[0_18px_50px_var(--app-shadow)] backdrop-blur">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="font-semibold text-rose-900">Finanzas Ceeseburgers C&K</p>
+                <p>Resumen local de compras, ventas e inventario guardado en este dispositivo.</p>
+              </div>
+            </footer>
           </div>
         </section>
 
-        <aside className={`${shellCardClass} flex min-h-[26rem] flex-col overflow-hidden`}>
-          <div className="border-b border-rose-100 pb-4">
-            <p className="text-sm font-medium text-rose-500">Carrito</p>
-            <div className="mt-1 flex items-end justify-between gap-3">
-              <h3 className="text-xl font-bold text-rose-950">Pedido actual</h3>
-              <span className="rounded-full bg-fuchsia-50 px-3 py-1 text-xs font-semibold text-fuchsia-700">
-                {cartUnits} items
-              </span>
-            </div>
-          </div>
-
+        <aside className={`${shellCardClass} flex min-h-[26rem] flex-col overflow-hidden lg:h-full lg:min-h-0`}>
           <div className="space-y-3 border-b border-rose-100 py-4">
             <div className="rounded-[1.35rem] bg-gradient-to-r from-rose-50 to-fuchsia-50 p-4">
-              <p className="text-sm font-medium text-rose-500">Total pedido</p>
-              <p className="mt-1 text-3xl font-black text-rose-950">{formatCurrency(cartTotal)}</p>
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-sm font-medium text-rose-500">Total pedido</p>
+                <span className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-fuchsia-700">
+                  {cartUnits} items
+                </span>
+              </div>
+              <p className="mt-2 text-3xl font-black text-rose-950">{formatCurrency(cartTotal)}</p>
             </div>
             <button
               type="button"
@@ -399,7 +502,7 @@ export function HomeSection({
             </button>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto py-4">
+          <div className="min-h-0 flex-1 overflow-auto py-4 pr-1">
             {cartItems.length === 0 ? (
               <div className="flex min-h-64 items-center justify-center rounded-[1.5rem] border border-dashed border-rose-200 bg-rose-50/60 px-5 text-center text-sm leading-6 text-rose-700">
                 Selecciona productos del menu para comenzar a armar el pedido.
@@ -438,7 +541,7 @@ export function HomeSection({
                       </button>
                     </div>
 
-                    {item.drinkOptions || item.sauceOptions || item.removableIngredients ? (
+                    {item.drinkOptions || item.sauceOptions || item.removableIngredients || familyComboBurgers[item.name] ? (
                       <div className="mt-4 space-y-3 border-t border-rose-100 pt-4">
                         {item.customizations.map((customization, index) => (
                           <div
@@ -515,6 +618,48 @@ export function HomeSection({
                                   </div>
                                 </div>
                               ) : null}
+
+                              {customization.familyBurgers ? (
+                                <div className="space-y-3">
+                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">
+                                    Sin por hamburguesa
+                                  </p>
+                                  {customization.familyBurgers.map((burger) => (
+                                    <div key={burger.id} className="rounded-[1rem] border border-rose-100 bg-white/70 p-3">
+                                      <p className="text-xs font-black uppercase tracking-[0.14em] text-rose-600">
+                                        {burger.label}
+                                      </p>
+                                      <div className="mt-2 flex flex-wrap gap-2">
+                                        {burger.removableIngredients.map((ingredient) => {
+                                          const isRemoved = burger.removedIngredients.includes(ingredient);
+
+                                          return (
+                                            <button
+                                              key={ingredient}
+                                              type="button"
+                                              onClick={() =>
+                                                toggleFamilyBurgerRemovedIngredient(
+                                                  item.id,
+                                                  customization.id,
+                                                  burger.id,
+                                                  ingredient,
+                                                )
+                                              }
+                                              className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                                                isRemoved
+                                                  ? "border-red-200 bg-red-50 text-red-700"
+                                                  : "border-rose-200 bg-white text-rose-600"
+                                              }`}
+                                            >
+                                              {ingredient}
+                                            </button>
+                                          );
+                                        })}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
                             </div>
                           </div>
                         ))}
@@ -554,7 +699,7 @@ export function HomeSection({
 
             <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[calc(80mm+2rem)_minmax(0,1fr)]">
               <div className="min-h-0 overflow-auto rounded-[1.5rem] bg-stone-100 p-4">
-                <div data-receipt-print className="space-y-4" style={receiptPreviewStyle}>
+                <div data-receipt-preview className="space-y-4" style={receiptPreviewStyle}>
                   {printSections.kitchen ? (
                   <div className="receipt-paper mx-auto lg:mx-0">
                     <div className="text-center">
@@ -583,6 +728,9 @@ export function HomeSection({
                           <div className="mt-1 space-y-0.5 text-xs font-semibold">
                             {familyComboDescriptions[group.name] ? <p>Incluye: {familyComboDescriptions[group.name]}</p> : null}
                             {group.removedIngredients.length > 0 ? <p>Sin: {group.removedIngredients.join(", ")}</p> : null}
+                            {group.familyBurgerNotes.map((note) => (
+                              <p key={note}>{note}</p>
+                            ))}
                             {group.drinks.length > 0 ? <p>Bebida: {group.drinks.join(", ")}</p> : null}
                             {group.sauces.length > 0 ? <p>Salsa: {group.sauces.join(", ")}</p> : null}
                           </div>

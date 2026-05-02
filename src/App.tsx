@@ -103,15 +103,17 @@ export default function App() {
                 <ToastBanner toast={finance.toast} />
                 <ErrorBanner error={finance.error} />
               </div>
-              <div className="min-h-0 flex-1 overflow-auto">
-                <div className="flex min-h-full flex-col">
+              <div className={`min-h-0 flex-1 ${activeSection === "home" ? "overflow-hidden" : "overflow-auto"}`}>
+                <div className={`flex flex-col ${activeSection === "home" ? "h-full min-h-0" : "min-h-full"}`}>
                   <div className="min-h-0 flex-1">{contentBySection[activeSection]}</div>
-                  <footer data-print-hidden className="mt-4 rounded-[1.5rem] border border-white/70 bg-white/70 px-5 py-4 text-sm text-rose-700 shadow-[0_18px_50px_rgba(190,24,93,0.08)] backdrop-blur">
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="font-semibold text-rose-900">Finanzas Ceeseburgers C&K</p>
-                      <p>Resumen local de compras, ventas e inventario guardado en este dispositivo.</p>
-                    </div>
-                  </footer>
+                  {activeSection === "home" ? null : (
+                    <footer data-print-hidden className="mt-4 rounded-[1.5rem] border border-white/70 bg-white/70 px-5 py-4 text-sm text-rose-700 shadow-[0_18px_50px_var(--app-shadow)] backdrop-blur">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                        <p className="font-semibold text-rose-900">Finanzas Ceeseburgers C&K</p>
+                        <p>Resumen local de compras, ventas e inventario guardado en este dispositivo.</p>
+                      </div>
+                    </footer>
+                  )}
                 </div>
               </div>
             </div>

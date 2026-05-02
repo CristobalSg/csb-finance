@@ -45,6 +45,11 @@ const isFamilyCombo = (name: string) => Boolean(familyComboDescriptions[name]);
 
 const shouldShowSauce = (item: Pick<SaleOrderItem, "name" | "sauce">) => Boolean(item.sauce && !isFamilyCombo(item.name));
 
+const getFamilyBurgerNotes = (item: Pick<SaleOrderItem, "familyBurgers">) =>
+  item.familyBurgers
+    ?.filter((burger) => burger.removedIngredients?.length)
+    .map((burger) => `${burger.label}: sin ${burger.removedIngredients?.join(", ")}`) ?? [];
+
 const getDateInputValue = (date = new Date()) => {
   const year = date.getFullYear();
   const month = `${date.getMonth() + 1}`.padStart(2, "0");
@@ -111,13 +116,15 @@ const getKitchenGroups = (items: SaleOrderItem[]) => {
       drinks: string[];
       sauces: string[];
       removedIngredients: string[];
+      familyBurgerNotes: string[];
     }
   >();
 
   for (const item of items) {
     const removedIngredients = [...(item.removedIngredients ?? [])].sort((a, b) => a.localeCompare(b));
+    const familyBurgerNotes = getFamilyBurgerNotes(item);
     const itemSauce = shouldShowSauce(item) ? item.sauce : undefined;
-    const key = [item.name, item.drink ?? "", itemSauce ?? "", removedIngredients.join("|")].join("::");
+    const key = [item.name, item.drink ?? "", itemSauce ?? "", removedIngredients.join("|"), familyBurgerNotes.join("|")].join("::");
     const existing = groups.get(key);
 
     if (existing) {
@@ -131,6 +138,7 @@ const getKitchenGroups = (items: SaleOrderItem[]) => {
       drinks: item.drink ? [item.drink] : [],
       sauces: itemSauce ? [itemSauce] : [],
       removedIngredients,
+      familyBurgerNotes,
     });
   }
 
@@ -454,6 +462,9 @@ export function SalesSection({
                   <div className="mt-1 space-y-0.5 text-xs font-semibold">
                     {familyComboDescriptions[group.name] ? <p>Incluye: {familyComboDescriptions[group.name]}</p> : null}
                     {group.removedIngredients.length > 0 ? <p>Sin: {group.removedIngredients.join(", ")}</p> : null}
+                    {group.familyBurgerNotes.map((note) => (
+                      <p key={note}>{note}</p>
+                    ))}
                     {group.drinks.length > 0 ? <p>Bebida: {group.drinks.join(", ")}</p> : null}
                     {group.sauces.length > 0 ? <p>Salsa: {group.sauces.join(", ")}</p> : null}
                   </div>
@@ -521,6 +532,7 @@ export function SalesSection({
                   item.drink ? `Bebida: ${item.drink}` : "",
                   shouldShowSauce(item) ? `Salsa: ${item.sauce}` : "",
                   item.removedIngredients?.length ? `Sin: ${item.removedIngredients.join(", ")}` : "",
+                  ...getFamilyBurgerNotes(item),
                 ].filter(Boolean);
 
                 return (
@@ -1102,6 +1114,7 @@ export function SalesSection({
                                           item.drink ? `Bebida: ${item.drink}` : "",
                                           shouldShowSauce(item) ? `Salsa: ${item.sauce}` : "",
                                           item.removedIngredients?.length ? `Sin: ${item.removedIngredients.join(", ")}` : "",
+                                          ...getFamilyBurgerNotes(item),
                                         ]
                                           .filter(Boolean)
                                           .join(" · ")}

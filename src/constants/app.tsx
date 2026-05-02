@@ -43,7 +43,7 @@ export type NavItem = {
 };
 
 export const shellCardClass =
-  "rounded-[2rem] border border-white/70 bg-white/80 p-5 shadow-[0_24px_80px_rgba(190,24,93,0.10)] backdrop-blur sm:p-6";
+  "rounded-[2rem] border border-white/70 bg-white/80 p-5 shadow-[0_24px_80px_var(--app-shadow)] backdrop-blur sm:p-6";
 
 export const systemName = "Finanzas Ceeseburgers C&K";
 

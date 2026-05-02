@@ -78,6 +78,9 @@ export const salesRowsToCsv = (rows: Sale[]) => {
             item.drink ? `Bebida: ${item.drink}` : "",
             item.sauce ? `Salsa: ${item.sauce}` : "",
             item.removedIngredients?.length ? `Sin: ${item.removedIngredients.join(", ")}` : "",
+            ...(item.familyBurgers
+              ?.filter((burger) => burger.removedIngredients?.length)
+              .map((burger) => `${burger.label}: sin ${burger.removedIngredients?.join(", ")}`) ?? []),
           ]
             .filter(Boolean)
             .join(" · ");

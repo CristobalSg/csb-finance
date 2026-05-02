@@ -1,9 +1,44 @@
 @import "tailwindcss";
 
+@theme {
+  --color-rose-50: #fff4f2;
+  --color-rose-100: #ffe5df;
+  --color-rose-200: #ffc8bc;
+  --color-rose-300: #f6a092;
+  --color-rose-400: #df6d65;
+  --color-rose-500: #ba3b42;
+  --color-rose-600: #982431;
+  --color-rose-700: #7b1b2a;
+  --color-rose-800: #5f1724;
+  --color-rose-900: #46121b;
+  --color-rose-950: #2c080f;
+  --color-fuchsia-50: #fff1f1;
+  --color-fuchsia-100: #ffdddd;
+  --color-fuchsia-200: #ffc0c1;
+  --color-fuchsia-300: #f89297;
+  --color-fuchsia-400: #e85f6c;
+  --color-fuchsia-500: #c92f45;
+  --color-fuchsia-600: #a91e36;
+  --color-fuchsia-700: #86172d;
+  --color-fuchsia-800: #681425;
+  --color-fuchsia-900: #4d101d;
+  --color-fuchsia-950: #2d0710;
+}
+
 :root {
+  --app-bg: #fff7f4;
+  --app-bg-soft: #fff1ec;
+  --app-surface-wash: rgba(186, 59, 66, 0.11);
+  --app-surface-wash-strong: rgba(169, 30, 54, 0.14);
+  --app-text: #2c080f;
+  --app-selection-bg: rgba(186, 59, 66, 0.26);
+  --app-scrollbar-track: rgba(255, 229, 223, 0.9);
+  --app-scrollbar-thumb-start: rgba(186, 59, 66, 0.72);
+  --app-scrollbar-thumb-end: rgba(134, 23, 45, 0.72);
+  --app-shadow: rgba(114, 20, 34, 0.12);
   font-family: "Avenir Next", "Segoe UI", sans-serif;
-  color: #4a044e;
-  background-color: #fff8fc;
+  color: var(--app-text);
+  background-color: var(--app-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -29,16 +64,16 @@ body {
   height: 100%;
   overflow: hidden;
   background:
-    radial-gradient(circle at top left, rgba(244, 114, 182, 0.18), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(251, 207, 232, 0.35), transparent 24%),
-    #fff8fc;
+    linear-gradient(135deg, var(--app-surface-wash), transparent 34%),
+    linear-gradient(315deg, var(--app-surface-wash-strong), transparent 30%),
+    var(--app-bg);
 }
 
 .app-shell {
   background:
-    radial-gradient(circle at top, rgba(244, 114, 182, 0.25), transparent 28%),
-    radial-gradient(circle at bottom right, rgba(251, 207, 232, 0.65), transparent 30%),
-    linear-gradient(180deg, #fff8fc 0%, #fff0f6 42%, #fffafc 100%);
+    linear-gradient(135deg, var(--app-surface-wash), transparent 34%),
+    linear-gradient(315deg, var(--app-surface-wash-strong), transparent 30%),
+    linear-gradient(180deg, var(--app-bg) 0%, var(--app-bg-soft) 44%, var(--app-bg) 100%);
 }
 
 a {
@@ -80,8 +115,8 @@ button:active {
 }
 
 ::selection {
-  background: rgba(244, 114, 182, 0.28);
-  color: #4a044e;
+  background: var(--app-selection-bg);
+  color: var(--app-text);
 }
 
 html {
@@ -94,15 +129,16 @@ html {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(255, 241, 242, 0.9);
+  background: var(--app-scrollbar-track);
 }
 
 ::-webkit-scrollbar-thumb {
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(236, 72, 153, 0.7), rgba(192, 38, 211, 0.7));
+  background: linear-gradient(180deg, var(--app-scrollbar-thumb-start), var(--app-scrollbar-thumb-end));
 }
 
 :root[data-theme="dark"] {
+  --app-shadow: rgba(0, 0, 0, 0.28);
   color: #f5f5f4;
   background-color: #171717;
 }
@@ -209,7 +245,7 @@ html {
 :root[data-theme="dark"] .text-fuchsia-700,
 :root[data-theme="dark"] .text-fuchsia-600,
 :root[data-theme="dark"] .text-fuchsia-500 {
-  color: #f0abfc;
+  color: #fca5a5;
 }
 
 :root[data-theme="dark"] .text-emerald-700 {

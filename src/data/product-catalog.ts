@@ -16,7 +16,7 @@ export const productCatalog: ProductCatalogItem[] = [
   { name: "Cs-Italiana", cost: 1044, price: 2290 },
   { name: "Cs-Bacon", cost: 954, price: 2490 },
   { name: "Cs-Romp II", cost: 1585, price: 3190 },
-  { name: "Cs-Smoke Criminal", cost: 1405, price: 3190 },
+  { name: "Cs-Smoke Criminal", cost: 1405, price: 2490 },
   { name: "Cs-Romp I", cost: 1567, price: 3190 },
   { name: "Papitas 180g", cost: 669, price: 1300 },
   { name: "Bebida", cost: 522, price: 1000 },

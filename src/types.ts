@@ -49,6 +49,13 @@ export type SaleOrderItem = {
   drink?: string;
   sauce?: string;
   removedIngredients?: string[];
+  familyBurgers?: SaleOrderFamilyBurger[];
+};
+
+export type SaleOrderFamilyBurger = {
+  label: string;
+  name: string;
+  removedIngredients?: string[];
 };
 
 export type InventoryItem = {

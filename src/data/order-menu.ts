@@ -7,6 +7,12 @@ export type OrderMenuItem = {
   removableIngredients?: string[];
 };
 
+export type FamilyComboBurger = {
+  name: string;
+  label: string;
+  removableIngredients: string[];
+};
+
 export type OrderMenuCategoryId =
   | "individual-combos"
   | "family-combos"
@@ -28,6 +34,25 @@ export const familyComboDescriptions: Record<string, string> = {
   "Combo Familiar": "3 clasicas + 2 bacon",
   "Full Bacon": "5 bacon",
   "Full Clasicas": "5 clasicas",
+};
+
+const clasicaRemovableIngredients = ["Tomate", "Lechuga", "Aderezo", "Queso cheddar"];
+const baconRemovableIngredients = ["Tocino", "Salsa BBQ", "Cebolla caramelizada", "Queso cheddar"];
+
+const createFamilyBurgers = (name: string, count: number, removableIngredients: string[]): FamilyComboBurger[] =>
+  Array.from({ length: count }, (_, index) => ({
+    name,
+    label: `${name} ${index + 1}`,
+    removableIngredients,
+  }));
+
+export const familyComboBurgers: Record<string, FamilyComboBurger[]> = {
+  "Combo Familiar": [
+    ...createFamilyBurgers("Clasica", 3, clasicaRemovableIngredients),
+    ...createFamilyBurgers("Bacon", 2, baconRemovableIngredients),
+  ],
+  "Full Bacon": createFamilyBurgers("Bacon", 5, baconRemovableIngredients),
+  "Full Clasicas": createFamilyBurgers("Clasica", 5, clasicaRemovableIngredients),
 };
 
 export const orderMenuCategories: OrderMenuCategory[] = [
@@ -80,6 +105,22 @@ export const orderMenuItems: OrderMenuItem[] = [
     sauceOptions: sideSauceOptions,
     removableIngredients: ["Mayonesa", "Tocino", "Lechuga", "Tomate", "Cebolla morada", "Queso cheddar"],
   },
+  {
+    name: "Combo Smoke Criminal XL",
+    price: 6990,
+    category: "individual-combos",
+    drinkOptions: comboDrinkOptions,
+    sauceOptions: sideSauceOptions,
+    removableIngredients: ["Cebolla crispy", "Doble tocino", "Doble carne", "Triple cheddar", "Salsa BBQ", "Mayonesa"],
+  },
+  {
+    name: "Combo Smoke Criminal",
+    price: 4690,
+    category: "individual-combos",
+    drinkOptions: comboDrinkOptions,
+    sauceOptions: sideSauceOptions,
+    removableIngredients: ["Cebolla crispy", "Tocino", "Carne", "Queso cheddar", "Salsa BBQ", "Mayonesa"],
+  },
   { name: "Combo Familiar", price: 10490, category: "family-combos" },
   { name: "Full Bacon", price: 11490, category: "family-combos" },
   { name: "Full Clasicas", price: 9490, category: "family-combos" },
@@ -91,10 +132,36 @@ export const orderMenuItems: OrderMenuItem[] = [
     removableIngredients: ["Salsa", "Tocino", "Queso", "Cebolla caramelizada"],
   },
   {
+    name: "Combo Papero Clasica",
+    price: 3490,
+    category: "papero-combo",
+    sauceOptions: sideSauceOptions,
+    removableIngredients: ["Tomate", "Lechuga", "Aderezo", "Queso cheddar"],
+  },
+  {
+    name: "Combo Papero Italiana",
+    price: 3690,
+    category: "papero-combo",
+    sauceOptions: sideSauceOptions,
+    removableIngredients: ["Palta", "Tomate", "Mayonesa", "Queso cheddar"],
+  },
+  {
     name: "Cs-Bacon",
     price: 2490,
     category: "burgers",
     removableIngredients: ["Tocino", "Salsa BBQ", "Cebolla caramelizada", "Queso cheddar"],
+  },
+  {
+    name: "Cs-Smoke Criminal XL",
+    price: 4690,
+    category: "burgers",
+    removableIngredients: ["Cebolla crispy", "Doble tocino", "Doble carne", "Triple cheddar", "Salsa BBQ", "Mayonesa"],
+  },
+  {
+    name: "Cs-Smoke Criminal",
+    price: 2490,
+    category: "burgers",
+    removableIngredients: ["Cebolla crispy", "Tocino", "Carne", "Queso cheddar", "Salsa BBQ", "Mayonesa"],
   },
   {
     name: "Cs-Romp II",
