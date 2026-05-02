@@ -352,6 +352,172 @@ export function HomeSection({
       })),
     }));
 
+  const renderReceiptPapers = (preview = false) => (
+    <>
+      {printSections.kitchen ? (
+        <div className={`receipt-paper ${preview ? "mx-auto lg:mx-0" : ""}`}>
+          <div className="text-center">
+            <p className="text-xs font-black uppercase">Comanda</p>
+            <p className="mt-1 text-[11px] font-bold">{new Date().toLocaleString("es-CL")}</p>
+            <p className="mt-3 text-3xl font-black leading-none">{fulfillmentTime.trim() || "Ahora"}</p>
+          </div>
+
+          <div className="my-3 border-t border-dashed border-black" />
+
+          <div className="receipt-cut space-y-1 text-xs font-semibold">
+            {orderName.trim() ? <p>Pedido: {orderName.trim()}</p> : null}
+            <p>Entrega: {deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
+            {deliveryType === "delivery" && deliveryAddress.trim() ? <p>Direccion: {deliveryAddress.trim()}</p> : null}
+            {orderDetail.trim() ? <p>Nota: {orderDetail.trim()}</p> : null}
+          </div>
+
+          <div className="my-3 border-t border-dashed border-black" />
+
+          <div className="space-y-3">
+            {kitchenGroups.map((group, index) => (
+              <div key={`${group.name}-${index}`} className="receipt-cut">
+                <p className="text-sm font-black">
+                  {group.quantity} x {group.name}
+                </p>
+                <div className="mt-1 space-y-0.5 text-xs font-semibold">
+                  {familyComboDescriptions[group.name] ? <p>Incluye: {familyComboDescriptions[group.name]}</p> : null}
+                  {group.removedIngredients.length > 0 ? <p>Sin: {group.removedIngredients.join(", ")}</p> : null}
+                  {group.familyBurgerNotes.map((note) => (
+                    <p key={note}>{note}</p>
+                  ))}
+                  {group.drinks.length > 0 ? <p>Bebida: {group.drinks.join(", ")}</p> : null}
+                  {group.sauces.length > 0 ? <p>Salsa: {group.sauces.join(", ")}</p> : null}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {kitchenSummary.drinks.length > 0 || kitchenSummary.sauces.length > 0 || kitchenSummary.fries > 0 ? (
+            <>
+              <div className="my-3 border-t border-dashed border-black" />
+              <div className="receipt-cut space-y-2 text-xs font-bold">
+                {kitchenSummary.fries > 0 ? <p>Papas: {kitchenSummary.fries}</p> : null}
+                {kitchenSummary.drinks.length > 0 ? (
+                  <div>
+                    <p className="font-black uppercase">Bebidas</p>
+                    {kitchenSummary.drinks.map(([drink, quantity]) => (
+                      <p key={drink}>
+                        {quantity} x {drink}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+                {kitchenSummary.sauces.length > 0 ? (
+                  <div>
+                    <p className="font-black uppercase">Salsas</p>
+                    {kitchenSummary.sauces.map(([sauce, quantity]) => (
+                      <p key={sauce}>
+                        {quantity} x {sauce}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            </>
+          ) : null}
+        </div>
+      ) : null}
+
+      {printSections.receipt ? (
+        <div className={`receipt-paper ${preview ? "mx-auto lg:mx-0" : ""}`}>
+          <div className="text-center">
+            <img src="/receipt-logo.png" alt="Ceese Burger's" className="receipt-logo" />
+            <p className="mt-1 text-xs font-bold">{new Date().toLocaleString("es-CL")}</p>
+          </div>
+
+          <div className="my-3 border-t border-dashed border-black" />
+
+          <div className="receipt-cut space-y-1 text-xs font-semibold">
+            {orderName.trim() ? <p>Nombre: {orderName.trim()}</p> : null}
+            {fulfillmentTime.trim() ? <p>Hora entrega: {fulfillmentTime.trim()}</p> : null}
+            <p>Pago: Pendiente</p>
+            <p>Entrega: {deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
+            {deliveryType === "delivery" && deliveryAddress.trim() ? <p>Direccion: {deliveryAddress.trim()}</p> : null}
+            {deliveryType === "delivery" ? <p>Valor delivery: {formatCurrency(deliveryFeeAmount)}</p> : null}
+            {discountValue > 0 ? <p>Descuento: -{formatCurrency(discountValue)}</p> : null}
+            {orderDetail.trim() ? <p>Detalle: {orderDetail.trim()}</p> : null}
+          </div>
+
+          <div className="my-3 border-t border-dashed border-black" />
+
+          <div className="space-y-3">
+            {receiptItems.map((item) => {
+              const notes = getCustomizationNotes(item.customization);
+
+              return (
+                <div key={`${item.id}-${item.customization.id}`} className="receipt-cut">
+                  <div className="flex justify-between gap-2 text-xs font-bold">
+                    <span className="min-w-0 break-words">1 x {item.unitLabel}</span>
+                    <span className="shrink-0 whitespace-nowrap">{formatCurrency(item.price)}</span>
+                  </div>
+                  {notes.length > 0 ? (
+                    <div className="mt-1 space-y-0.5 text-[11px] font-semibold leading-4">
+                      {notes.map((note) => (
+                        <p key={note}>{note}</p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="my-3 border-t border-dashed border-black" />
+
+          {deliveryType === "delivery" ? (
+            <div className="space-y-1 text-xs font-bold">
+              <div className="flex justify-between gap-2">
+                <span>Subtotal</span>
+                <span className="shrink-0 whitespace-nowrap">{formatCurrency(cartTotal)}</span>
+              </div>
+              {discountValue > 0 ? (
+                <div className="flex justify-between gap-2">
+                  <span>Descuento</span>
+                  <span className="shrink-0 whitespace-nowrap">-{formatCurrency(discountValue)}</span>
+                </div>
+              ) : null}
+              <div className="flex justify-between gap-2">
+                <span>Delivery</span>
+                <span className="shrink-0 whitespace-nowrap">{formatCurrency(deliveryFeeAmount)}</span>
+              </div>
+            </div>
+          ) : discountValue > 0 ? (
+            <div className="space-y-1 text-xs font-bold">
+              <div className="flex justify-between gap-2">
+                <span>Subtotal</span>
+                <span className="shrink-0 whitespace-nowrap">{formatCurrency(cartTotal)}</span>
+              </div>
+              <div className="flex justify-between gap-2">
+                <span>Descuento</span>
+                <span className="shrink-0 whitespace-nowrap">-{formatCurrency(discountValue)}</span>
+              </div>
+            </div>
+          ) : null}
+
+          <div className="mt-2 flex justify-between text-sm font-black">
+            <span>Total</span>
+            <span className="shrink-0 whitespace-nowrap">{formatCurrency(orderTotal)}</span>
+          </div>
+        </div>
+      ) : null}
+
+      {printSections.thanks ? (
+        <div className={`receipt-paper ${preview ? "mx-auto lg:mx-0" : ""}`}>
+          <div className="flex min-h-[48mm] flex-col items-center justify-center text-center">
+            <p className="text-xl font-black uppercase leading-tight">Muchas gracias</p>
+            <p className="mt-2 text-sm font-bold">Que las disfrute</p>
+            <p className="mt-3 text-base font-black uppercase">Ceese Burger's</p>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+
   const handleConfirmPrint = async () => {
     if (isPrinting) {
       return;
@@ -393,27 +559,12 @@ export function HomeSection({
       return;
     }
 
-    const receiptPreview = document.querySelector("[data-receipt-preview]");
-    const receiptPrintNode = receiptPreview?.cloneNode(true) as HTMLElement | undefined;
-
-    if (!receiptPrintNode) {
-      window.alert("No se pudo preparar la impresion de la boleta.");
-      setIsPrinting(false);
-      return;
-    }
-
-    receiptPrintNode.removeAttribute("data-receipt-preview");
-    receiptPrintNode.setAttribute("data-receipt-print", "");
-    receiptPrintNode.className = "";
-    document.body.appendChild(receiptPrintNode);
-
     const removeReceiptPageStyle = setupReceiptPrintPage(receiptPaperSize);
     document.body.classList.add("printing-receipt");
     window.print();
     window.setTimeout(() => {
       document.body.classList.remove("printing-receipt");
       removeReceiptPageStyle();
-      receiptPrintNode.remove();
       setIsPrinting(false);
       setIsReceiptOpen(false);
       setCartItems([]);
@@ -675,6 +826,10 @@ export function HomeSection({
 
       {isReceiptOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/55 px-4 py-8 backdrop-blur-sm">
+          <div data-receipt-print className="pointer-events-none fixed left-[-9999px] top-0">
+            {renderReceiptPapers()}
+          </div>
+
           <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[2rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.28)]">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
@@ -700,167 +855,7 @@ export function HomeSection({
             <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[calc(80mm+2rem)_minmax(0,1fr)]">
               <div className="min-h-0 overflow-auto rounded-[1.5rem] bg-stone-100 p-4">
                 <div data-receipt-preview className="space-y-4" style={receiptPreviewStyle}>
-                  {printSections.kitchen ? (
-                  <div className="receipt-paper mx-auto lg:mx-0">
-                    <div className="text-center">
-                      <p className="text-xs font-black uppercase">Comanda</p>
-                      <p className="mt-1 text-[11px] font-bold">{new Date().toLocaleString("es-CL")}</p>
-                      <p className="mt-3 text-3xl font-black leading-none">{fulfillmentTime.trim() || "Ahora"}</p>
-                    </div>
-
-                    <div className="my-3 border-t border-dashed border-black" />
-
-                    <div className="receipt-cut space-y-1 text-xs font-semibold">
-                      {orderName.trim() ? <p>Pedido: {orderName.trim()}</p> : null}
-                      <p>Entrega: {deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
-                      {deliveryType === "delivery" && deliveryAddress.trim() ? <p>Direccion: {deliveryAddress.trim()}</p> : null}
-                      {orderDetail.trim() ? <p>Nota: {orderDetail.trim()}</p> : null}
-                    </div>
-
-                    <div className="my-3 border-t border-dashed border-black" />
-
-                    <div className="space-y-3">
-                      {kitchenGroups.map((group, index) => (
-                        <div key={`${group.name}-${index}`} className="receipt-cut">
-                          <p className="text-sm font-black">
-                            {group.quantity} x {group.name}
-                          </p>
-                          <div className="mt-1 space-y-0.5 text-xs font-semibold">
-                            {familyComboDescriptions[group.name] ? <p>Incluye: {familyComboDescriptions[group.name]}</p> : null}
-                            {group.removedIngredients.length > 0 ? <p>Sin: {group.removedIngredients.join(", ")}</p> : null}
-                            {group.familyBurgerNotes.map((note) => (
-                              <p key={note}>{note}</p>
-                            ))}
-                            {group.drinks.length > 0 ? <p>Bebida: {group.drinks.join(", ")}</p> : null}
-                            {group.sauces.length > 0 ? <p>Salsa: {group.sauces.join(", ")}</p> : null}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {(kitchenSummary.drinks.length > 0 || kitchenSummary.sauces.length > 0 || kitchenSummary.fries > 0) ? (
-                      <>
-                        <div className="my-3 border-t border-dashed border-black" />
-                        <div className="receipt-cut space-y-2 text-xs font-bold">
-                          {kitchenSummary.fries > 0 ? <p>Papas: {kitchenSummary.fries}</p> : null}
-                          {kitchenSummary.drinks.length > 0 ? (
-                            <div>
-                              <p className="font-black uppercase">Bebidas</p>
-                              {kitchenSummary.drinks.map(([drink, quantity]) => (
-                                <p key={drink}>
-                                  {quantity} x {drink}
-                                </p>
-                              ))}
-                            </div>
-                          ) : null}
-                          {kitchenSummary.sauces.length > 0 ? (
-                            <div>
-                              <p className="font-black uppercase">Salsas</p>
-                              {kitchenSummary.sauces.map(([sauce, quantity]) => (
-                                <p key={sauce}>
-                                  {quantity} x {sauce}
-                                </p>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      </>
-                    ) : null}
-                  </div>
-                  ) : null}
-
-                  {printSections.receipt ? (
-                  <div className="receipt-paper mx-auto lg:mx-0">
-                    <div className="text-center">
-                      <img src="/receipt-logo.png" alt="Ceese Burger's" className="receipt-logo" />
-                      <p className="mt-1 text-xs font-bold">{new Date().toLocaleString("es-CL")}</p>
-                    </div>
-
-                    <div className="my-3 border-t border-dashed border-black" />
-
-                    <div className="receipt-cut space-y-1 text-xs font-semibold">
-                      {orderName.trim() ? <p>Nombre: {orderName.trim()}</p> : null}
-                      {fulfillmentTime.trim() ? <p>Hora entrega: {fulfillmentTime.trim()}</p> : null}
-                      <p>Pago: Pendiente</p>
-                      <p>Entrega: {deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
-                      {deliveryType === "delivery" && deliveryAddress.trim() ? <p>Direccion: {deliveryAddress.trim()}</p> : null}
-                      {deliveryType === "delivery" ? <p>Valor delivery: {formatCurrency(deliveryFeeAmount)}</p> : null}
-                      {discountValue > 0 ? <p>Descuento: -{formatCurrency(discountValue)}</p> : null}
-                      {orderDetail.trim() ? <p>Detalle: {orderDetail.trim()}</p> : null}
-                    </div>
-
-                    <div className="my-3 border-t border-dashed border-black" />
-
-                    <div className="space-y-3">
-                      {receiptItems.map((item) => {
-                        const notes = getCustomizationNotes(item.customization);
-
-                        return (
-                          <div key={`${item.id}-${item.customization.id}`} className="receipt-cut">
-                            <div className="flex justify-between gap-2 text-xs font-bold">
-                              <span className="min-w-0 break-words">1 x {item.unitLabel}</span>
-                              <span className="shrink-0 whitespace-nowrap">{formatCurrency(item.price)}</span>
-                            </div>
-                            {notes.length > 0 ? (
-                              <div className="mt-1 space-y-0.5 text-[11px] font-semibold leading-4">
-                                {notes.map((note) => (
-                                  <p key={note}>{note}</p>
-                                ))}
-                              </div>
-                            ) : null}
-                          </div>
-                        );
-                      })}
-                    </div>
-
-                    <div className="my-3 border-t border-dashed border-black" />
-
-                    {deliveryType === "delivery" ? (
-                      <div className="space-y-1 text-xs font-bold">
-                        <div className="flex justify-between gap-2">
-                          <span>Subtotal</span>
-                          <span className="shrink-0 whitespace-nowrap">{formatCurrency(cartTotal)}</span>
-                        </div>
-                        {discountValue > 0 ? (
-                          <div className="flex justify-between gap-2">
-                            <span>Descuento</span>
-                            <span className="shrink-0 whitespace-nowrap">-{formatCurrency(discountValue)}</span>
-                          </div>
-                        ) : null}
-                        <div className="flex justify-between gap-2">
-                          <span>Delivery</span>
-                          <span className="shrink-0 whitespace-nowrap">{formatCurrency(deliveryFeeAmount)}</span>
-                        </div>
-                      </div>
-                    ) : discountValue > 0 ? (
-                      <div className="space-y-1 text-xs font-bold">
-                        <div className="flex justify-between gap-2">
-                          <span>Subtotal</span>
-                          <span className="shrink-0 whitespace-nowrap">{formatCurrency(cartTotal)}</span>
-                        </div>
-                        <div className="flex justify-between gap-2">
-                          <span>Descuento</span>
-                          <span className="shrink-0 whitespace-nowrap">-{formatCurrency(discountValue)}</span>
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div className="mt-2 flex justify-between text-sm font-black">
-                      <span>Total</span>
-                      <span className="shrink-0 whitespace-nowrap">{formatCurrency(orderTotal)}</span>
-                    </div>
-                  </div>
-                  ) : null}
-
-                  {printSections.thanks ? (
-                  <div className="receipt-paper mx-auto lg:mx-0">
-                    <div className="flex min-h-[48mm] flex-col items-center justify-center text-center">
-                      <p className="text-xl font-black uppercase leading-tight">Muchas gracias</p>
-                      <p className="mt-2 text-sm font-bold">Que las disfrute</p>
-                      <p className="mt-3 text-base font-black uppercase">Ceese Burger's</p>
-                    </div>
-                  </div>
-                  ) : null}
+                  {renderReceiptPapers(true)}
                 </div>
               </div>
 
