@@ -11,6 +11,7 @@ import {
   type ToastState,
 } from "../constants/app";
 import { productCatalog } from "../data/product-catalog";
+import { familyComboBurgers, orderMenuItems } from "../data/order-menu";
 import {
   loadIngredientStore,
   registerSale,
@@ -33,6 +34,7 @@ import type {
   StockControlMode,
   StockMovement,
   StoreName,
+  WeeklySalesStats,
 } from "../types";
 import type { InventorySaleInputItem } from "../types/inventory";
 
@@ -131,6 +133,131 @@ const catalogIndex = new Map(
 );
 
 const catalogMatchers = [...catalogIndex.values()].sort((a, b) => b.normalizedName.length - a.normalizedName.length);
+const orderMenuByName = new Map(orderMenuItems.map((item) => [normalizeText(item.name), item]));
+const saleStatsProductMatchers = [...orderMenuByName.values()]
+  .map((item) => ({ ...item, normalizedName: normalizeText(item.name) }))
+  .sort((a, b) => b.normalizedName.length - a.normalizedName.length);
+
+const parseLocalDate = (date: string) => {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(year, month - 1, day);
+};
+
+const formatLocalDate = (date: Date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const formatWeekLabel = (start: Date, end: Date) =>
+  `${start.toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit" })} - ${end.toLocaleDateString("es-CL", {
+    day: "2-digit",
+    month: "2-digit",
+  })}`;
+
+const getServiceWeekStart = (date: string) => {
+  const parsedDate = parseLocalDate(date);
+  const day = parsedDate.getDay();
+  const daysSinceThursday = (day + 3) % 7;
+  parsedDate.setDate(parsedDate.getDate() - daysSinceThursday);
+  return parsedDate;
+};
+
+const resolveSaleStatsProductName = (sale: Sale) => {
+  const explicit = sale.productName ? normalizeText(sale.productName) : "";
+  if (explicit && orderMenuByName.has(explicit)) {
+    return orderMenuByName.get(explicit)?.name ?? null;
+  }
+
+  const detail = normalizeText(sale.detail);
+  const match = saleStatsProductMatchers.find((item) => detail.includes(item.normalizedName));
+  return match?.name ?? null;
+};
+
+const addCount = (map: Map<string, number>, name: string, quantity: number) => {
+  if (quantity <= 0) {
+    return;
+  }
+
+  map.set(name, (map.get(name) ?? 0) + quantity);
+};
+
+const getNuggetUnits = (name: string) => {
+  const match = name.match(/x(\d+)/i);
+  return match ? Number.parseInt(match[1], 10) : 1;
+};
+
+const getFamilyComboBurgerCount = (item: SaleOrderItem) => item.familyBurgers?.length ?? familyComboBurgers[item.name]?.length ?? 0;
+
+const addItemToWeeklyStats = (
+  stats: WeeklySalesStats,
+  productBreakdown: Map<string, number>,
+  drinkBreakdown: Map<string, number>,
+  sauceBreakdown: Map<string, number>,
+  item: SaleOrderItem,
+) => {
+  const quantity = item.quantity > 0 ? item.quantity : 1;
+  const menuItem = orderMenuByName.get(normalizeText(item.name));
+
+  addCount(productBreakdown, item.name, quantity);
+
+  if (item.drink) {
+    stats.drinks += quantity;
+    addCount(drinkBreakdown, item.drink, quantity);
+  }
+
+  if (item.sauce) {
+    stats.sauces += quantity;
+    addCount(sauceBreakdown, item.sauce, quantity);
+  }
+
+  if (menuItem?.category === "burgers") {
+    stats.burgers += quantity;
+    return;
+  }
+
+  if (menuItem?.category === "individual-combos") {
+    const familyBurgerCount = getFamilyComboBurgerCount(item);
+    stats.burgers += familyBurgerCount > 0 ? familyBurgerCount * quantity : quantity;
+    return;
+  }
+
+  if (menuItem?.category === "family-combos") {
+    stats.burgers += getFamilyComboBurgerCount(item) * quantity;
+    return;
+  }
+
+  if (menuItem?.category === "papero-combo") {
+    stats.burgers += quantity;
+    stats.fries += quantity;
+    return;
+  }
+
+  if (menuItem?.category === "sides") {
+    if (normalizeText(item.name).includes("PAP")) {
+      stats.fries += quantity;
+    } else if (normalizeText(item.name).includes("BEBIDA")) {
+      if (!item.drink) {
+        stats.drinks += quantity;
+        addCount(drinkBreakdown, item.name, quantity);
+      }
+    } else if (normalizeText(item.name).includes("NUGGET")) {
+      stats.nuggets += getNuggetUnits(item.name) * quantity;
+    } else {
+      stats.other += quantity;
+    }
+    return;
+  }
+
+  if (menuItem?.category === "sauces") {
+    stats.sauces += quantity;
+    addCount(sauceBreakdown, item.name, quantity);
+    return;
+  }
+
+  stats.other += quantity;
+};
 
 const resolveProductName = (sale: Sale) => {
   const explicit = sale.productName ? normalizeText(sale.productName) : "";
@@ -316,6 +443,99 @@ export function useFinanceData() {
     const topProductsByProfit = [...productMetrics]
       .sort((a, b) => b.absoluteProfit - a.absoluteProfit || b.marginPercent - a.marginPercent)
       .slice(0, 5);
+    const weeklyStatsMap = new Map<string, WeeklySalesStats>();
+    const weeklyProductBreakdowns = new Map<string, Map<string, number>>();
+    const weeklyDrinkBreakdowns = new Map<string, Map<string, number>>();
+    const weeklySauceBreakdowns = new Map<string, Map<string, number>>();
+
+    const ensureWeeklyStats = (sale: Sale) => {
+      const weekStart = getServiceWeekStart(sale.date);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 3);
+      const weekKey = formatLocalDate(weekStart);
+      const current = weeklyStatsMap.get(weekKey);
+
+      if (current) {
+        return current;
+      }
+
+      const nextStats: WeeklySalesStats = {
+        weekKey,
+        label: `Jue-Dom ${formatWeekLabel(weekStart, weekEnd)}`,
+        salesCount: 0,
+        income: 0,
+        burgers: 0,
+        fries: 0,
+        drinks: 0,
+        nuggets: 0,
+        sauces: 0,
+        other: 0,
+        products: [],
+        drinksBreakdown: [],
+        saucesBreakdown: [],
+      };
+
+      weeklyStatsMap.set(weekKey, nextStats);
+      weeklyProductBreakdowns.set(weekKey, new Map());
+      weeklyDrinkBreakdowns.set(weekKey, new Map());
+      weeklySauceBreakdowns.set(weekKey, new Map());
+      return nextStats;
+    };
+
+    for (const sale of sales) {
+      const weeklyStats = ensureWeeklyStats(sale);
+      const productBreakdown = weeklyProductBreakdowns.get(weeklyStats.weekKey) ?? new Map();
+      const drinkBreakdown = weeklyDrinkBreakdowns.get(weeklyStats.weekKey) ?? new Map();
+      const sauceBreakdown = weeklySauceBreakdowns.get(weeklyStats.weekKey) ?? new Map();
+
+      weeklyStats.salesCount += 1;
+      weeklyStats.income += getSaleNetTotal(sale);
+
+      if (sale.orderItems && sale.orderItems.length > 0) {
+        for (const item of sale.orderItems) {
+          addItemToWeeklyStats(weeklyStats, productBreakdown, drinkBreakdown, sauceBreakdown, item);
+        }
+        continue;
+      }
+
+      const productName = resolveSaleStatsProductName(sale);
+      if (!productName) {
+        weeklyStats.other += sale.quantity || 1;
+        continue;
+      }
+
+      const menuItem = orderMenuByName.get(normalizeText(productName));
+      const product = catalogIndex.get(normalizeText(productName));
+      const quantity = sale.quantity || (product ? inferSaleQuantity(sale, product.price) : 1) || 1;
+      addItemToWeeklyStats(weeklyStats, productBreakdown, drinkBreakdown, sauceBreakdown, {
+        name: productName,
+        quantity,
+        unitPrice: quantity > 0 ? getSaleNetTotal(sale) / quantity : getSaleNetTotal(sale),
+        total: getSaleNetTotal(sale),
+        familyBurgers: menuItem?.category === "family-combos" ? familyComboBurgers[productName] : undefined,
+      });
+    }
+
+    const weeklyStats = [...weeklyStatsMap.values()]
+      .map((item) => {
+        const products = [...(weeklyProductBreakdowns.get(item.weekKey)?.entries() ?? [])]
+          .map(([name, quantity]) => ({ name, quantity }))
+          .sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name, "es"));
+        const drinksBreakdown = [...(weeklyDrinkBreakdowns.get(item.weekKey)?.entries() ?? [])]
+          .map(([name, quantity]) => ({ name, quantity }))
+          .sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name, "es"));
+        const saucesBreakdown = [...(weeklySauceBreakdowns.get(item.weekKey)?.entries() ?? [])]
+          .map(([name, quantity]) => ({ name, quantity }))
+          .sort((a, b) => b.quantity - a.quantity || a.name.localeCompare(b.name, "es"));
+
+        return {
+          ...item,
+          products,
+          drinksBreakdown,
+          saucesBreakdown,
+        };
+      })
+      .sort((a, b) => b.weekKey.localeCompare(a.weekKey));
 
     return {
       income,
@@ -344,6 +564,7 @@ export function useFinanceData() {
       productMetrics,
       topProductsByMargin,
       topProductsByProfit,
+      weeklyStats,
       net: collectedIncome - operatingExpenses,
       expectedCash: collectedIncome - operatingExpenses,
     };

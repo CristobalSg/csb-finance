@@ -5,7 +5,9 @@ import { GrowthInsightsCard } from "../components/dashboard/GrowthInsightsCard";
 import { ProjectionGrowthSection } from "../components/dashboard/ProjectionGrowthSection";
 import { ProductMetricsTable } from "../components/dashboard/ProductMetricsTable";
 import { StatCard } from "../components/dashboard/StatCard";
+import { WeeklySalesStatsCard } from "../components/dashboard/WeeklySalesStatsCard";
 import { formatCurrency, formatNumber, formatPercent } from "../lib/format";
+import type { WeeklySalesStats } from "../types";
 
 export function DashboardSection({
   totals,
@@ -60,6 +62,7 @@ export function DashboardSection({
       marginPercent: number;
       absoluteProfit: number;
     }[];
+    weeklyStats: WeeklySalesStats[];
     net: number;
     expectedCash: number;
   };
@@ -184,6 +187,8 @@ export function DashboardSection({
         topByMargin={totals.topProductsByMargin}
         topByProfit={totals.topProductsByProfit}
       />
+
+      <WeeklySalesStatsCard weeks={totals.weeklyStats} />
     </section>
   );
 }

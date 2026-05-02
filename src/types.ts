@@ -58,6 +58,22 @@ export type SaleOrderFamilyBurger = {
   removedIngredients?: string[];
 };
 
+export type WeeklySalesStats = {
+  weekKey: string;
+  label: string;
+  salesCount: number;
+  income: number;
+  burgers: number;
+  fries: number;
+  drinks: number;
+  nuggets: number;
+  sauces: number;
+  other: number;
+  products: { name: string; quantity: number }[];
+  drinksBreakdown: { name: string; quantity: number }[];
+  saucesBreakdown: { name: string; quantity: number }[];
+};
+
 export type InventoryItem = {
   id: string;
   createdAt: string;
