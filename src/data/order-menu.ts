@@ -14,6 +14,7 @@ export type FamilyComboBurger = {
 };
 
 export type OrderMenuCategoryId =
+  | "offers"
   | "individual-combos"
   | "family-combos"
   | "papero-combo"
@@ -34,6 +35,7 @@ export const familyComboDescriptions: Record<string, string> = {
   "Combo Familiar": "3 clasicas + 2 bacon",
   "Full Bacon": "5 bacon",
   "Full Clasicas": "5 clasicas",
+  "Smoke Hause XL x2": "2 smoke XL",
 };
 
 const clasicaRemovableIngredients = ["Tomate", "Lechuga", "Aderezo", "Queso cheddar"];
@@ -53,9 +55,18 @@ export const familyComboBurgers: Record<string, FamilyComboBurger[]> = {
   ],
   "Full Bacon": createFamilyBurgers("Bacon", 5, baconRemovableIngredients),
   "Full Clasicas": createFamilyBurgers("Clasica", 5, clasicaRemovableIngredients),
+  "Smoke Hause XL x2": createFamilyBurgers("Smoke XL", 2, [
+    "Cebolla crispy",
+    "Doble tocino",
+    "Doble carne",
+    "Triple cheddar",
+    "Salsa BBQ",
+    "Mayonesa",
+  ]),
 };
 
 export const orderMenuCategories: OrderMenuCategory[] = [
+  { id: "offers", label: "Ofertas" },
   { id: "individual-combos", label: "Combos individuales" },
   { id: "family-combos", label: "Combos familiares" },
   { id: "papero-combo", label: "Combo papero" },
@@ -65,6 +76,7 @@ export const orderMenuCategories: OrderMenuCategory[] = [
 ];
 
 export const orderMenuItems: OrderMenuItem[] = [
+  { name: "Smoke Hause XL x2", price: 8000, category: "offers" },
   {
     name: "Combo Clasico",
     price: 4490,

@@ -228,6 +228,12 @@ const addItemToWeeklyStats = (
     return;
   }
 
+  if (menuItem?.category === "offers") {
+    const familyBurgerCount = getFamilyComboBurgerCount(item);
+    stats.burgers += familyBurgerCount > 0 ? familyBurgerCount * quantity : quantity;
+    return;
+  }
+
   if (menuItem?.category === "papero-combo") {
     stats.burgers += quantity;
     stats.fries += quantity;
@@ -504,7 +510,6 @@ export function useFinanceData() {
         continue;
       }
 
-      const menuItem = orderMenuByName.get(normalizeText(productName));
       const product = catalogIndex.get(normalizeText(productName));
       const quantity = sale.quantity || (product ? inferSaleQuantity(sale, product.price) : 1) || 1;
       addItemToWeeklyStats(weeklyStats, productBreakdown, drinkBreakdown, sauceBreakdown, {
@@ -512,7 +517,7 @@ export function useFinanceData() {
         quantity,
         unitPrice: quantity > 0 ? getSaleNetTotal(sale) / quantity : getSaleNetTotal(sale),
         total: getSaleNetTotal(sale),
-        familyBurgers: menuItem?.category === "family-combos" ? familyComboBurgers[productName] : undefined,
+        familyBurgers: familyComboBurgers[productName],
       });
     }
 

@@ -1,4 +1,4 @@
-import { type CSSProperties, useMemo, useState } from "react";
+import { type CSSProperties, useMemo, useRef, useState } from "react";
 
 import { PrintIcon, XIcon } from "../components/icons";
 import { shellCardClass } from "../constants/app";
@@ -74,6 +74,7 @@ export function HomeSection({
   const [fulfillmentTime, setFulfillmentTime] = useState("");
   const [orderName, setOrderName] = useState("");
   const [orderDetail, setOrderDetail] = useState("");
+  const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const cartTotal = useMemo(
     () => cartItems.reduce((total, item) => total + item.price * item.quantity, 0),
@@ -90,6 +91,11 @@ export function HomeSection({
   const discountedCartTotal = Math.max(0, cartTotal - discountValue);
   const orderTotal = discountedCartTotal + deliveryFeeAmount;
   const receiptPreviewStyle = { "--receipt-width": receiptPaperSize } as CSSProperties;
+  const highlightedMenuCategoryIds = new Set(["burgers", "family-combos"]);
+
+  const scrollToCategory = (categoryId: string) => {
+    categoryRefs.current[categoryId]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const createFamilyBurgerCustomization = (itemName: string) =>
     familyComboBurgers[itemName]?.map((burger) => ({
@@ -589,6 +595,22 @@ export function HomeSection({
             <div>
               <p className="text-sm font-medium text-rose-500">Menu</p>
               <h3 className="mt-1 text-xl font-bold text-rose-950">Productos disponibles</h3>
+              <div className="mt-3 flex max-w-full flex-wrap gap-2">
+                {orderMenuCategories.map((category) => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    onClick={() => scrollToCategory(category.id)}
+                    className={`min-w-0 flex-1 rounded-full border px-3 py-1.5 text-xs font-black uppercase tracking-[0.12em] transition sm:flex-none ${
+                      highlightedMenuCategoryIds.has(category.id)
+                        ? "border-fuchsia-300 bg-fuchsia-600 text-white shadow-sm shadow-fuchsia-200 hover:bg-fuchsia-700"
+                        : "border-rose-200 bg-white text-rose-600 hover:border-fuchsia-300 hover:bg-fuchsia-50 hover:text-fuchsia-700"
+                    }`}
+                  >
+                    {category.label}
+                  </button>
+                ))}
+              </div>
             </div>
             <span className="rounded-full bg-rose-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-rose-500">
               {orderMenuItems.length} opciones
@@ -597,7 +619,12 @@ export function HomeSection({
 
           <div className="mt-5 min-h-0 flex-1 space-y-6 overflow-auto pr-1">
             {orderMenuCategories.map((category) => (
-              <div key={category.id}>
+              <div
+                key={category.id}
+                ref={(element) => {
+                  categoryRefs.current[category.id] = element;
+                }}
+              >
                 <h4 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-rose-500">{category.label}</h4>
                 <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
                   {orderMenuItems
