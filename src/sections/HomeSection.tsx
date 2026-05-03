@@ -565,11 +565,9 @@ export function HomeSection({
       return;
     }
 
-    const removeReceiptPageStyle = setupReceiptPrintPage(receiptPaperSize);
-    document.body.classList.add("printing-receipt");
-    window.print();
-    window.setTimeout(() => {
+    const cleanupPrint = () => {
       document.body.classList.remove("printing-receipt");
+      window.removeEventListener("afterprint", cleanupPrint);
       removeReceiptPageStyle();
       setIsPrinting(false);
       setIsReceiptOpen(false);
@@ -584,10 +582,23 @@ export function HomeSection({
       setFulfillmentTime("");
       setOrderName("");
       setOrderDetail("");
-    }, 500);
+    };
+
+    const removeReceiptPageStyle = setupReceiptPrintPage(receiptPaperSize);
+    document.body.classList.add("printing-receipt");
+    window.addEventListener("afterprint", cleanupPrint, { once: true });
+    window.print();
+    window.setTimeout(cleanupPrint, 500);
   };
 
   return (
+    <>
+    {isReceiptOpen ? (
+      <div data-receipt-print className="pointer-events-none fixed left-[-9999px] top-0">
+        {renderReceiptPapers()}
+      </div>
+    ) : null}
+
     <section className="flex h-full min-h-0 flex-col space-y-4 overflow-auto pr-1 lg:overflow-hidden">
       <div className="grid h-full min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:overflow-hidden">
         <section className={`${shellCardClass} flex min-h-[26rem] flex-col overflow-hidden lg:min-h-0`}>
@@ -853,10 +864,6 @@ export function HomeSection({
 
       {isReceiptOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/55 px-4 py-8 backdrop-blur-sm">
-          <div data-receipt-print className="pointer-events-none fixed left-[-9999px] top-0">
-            {renderReceiptPapers()}
-          </div>
-
           <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-[2rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.28)]">
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
@@ -1109,5 +1116,6 @@ export function HomeSection({
         </div>
       ) : null}
     </section>
+    </>
   );
 }
