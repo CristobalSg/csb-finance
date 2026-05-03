@@ -5,6 +5,25 @@ import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 const escpos = require("escpos");
 
+const patchEscposUsbEvents = () => {
+  const escposUsbRequire = createRequire(require.resolve("escpos-usb"));
+  const usbPackage = escposUsbRequire("usb");
+
+  if (!usbPackage.on && usbPackage.usb?.on) {
+    usbPackage.on = usbPackage.usb.on.bind(usbPackage.usb);
+  }
+
+  if (!usbPackage.off && usbPackage.usb?.off) {
+    usbPackage.off = usbPackage.usb.off.bind(usbPackage.usb);
+  }
+
+  if (!usbPackage.removeListener && usbPackage.usb?.removeListener) {
+    usbPackage.removeListener = usbPackage.usb.removeListener.bind(usbPackage.usb);
+  }
+};
+
+patchEscposUsbEvents();
+
 escpos.USB = require("escpos-usb");
 escpos.Network = require("escpos-network");
 
