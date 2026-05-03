@@ -89,10 +89,106 @@ const parsePurchaseDate = (raw: string) => {
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
 };
 
+const parseSaleDate = (raw: string) => {
+  const value = raw.trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  return parsePurchaseDate(value);
+};
+
+const createSaleCreatedAt = (date: string) => {
+  const parsedDate = new Date(`${date}T12:00:00`);
+  return Number.isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString();
+};
+
 const parseCurrencyValue = (value: string) => {
   const normalized = value.replace(/\$/g, "").replace(/\./g, "").replace(/,/g, ".").trim();
   const number = Number.parseFloat(normalized);
   return Number.isFinite(number) ? number : NaN;
+};
+
+const getOptionalCurrencyValue = (value: string) => {
+  const parsed = parseCurrencyValue(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const parseDeliveryType = (raw: string): DeliveryType => {
+  const delivery = normalizeCsvHeader(raw);
+  return delivery.includes("DELIVERY") ? "delivery" : "retiro";
+};
+
+const parseExportedOrderItems = (orderText: string, fallbackTotal: number): SaleOrderItem[] | undefined => {
+  const rawItems = orderText
+    .split("|")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (rawItems.length === 0) {
+    return undefined;
+  }
+
+  const parsedItems = rawItems.map((rawItem) => {
+    const match = rawItem.match(/^(\d+(?:[.,]\d+)?)\s*x\s*(.+)$/i);
+    const quantity = match ? Number.parseFloat(match[1].replace(",", ".")) || 1 : 1;
+    const itemText = match ? match[2].trim() : rawItem;
+    const notesMatch = itemText.match(/^(.*?)\s*\((.*)\)$/);
+    const name = (notesMatch ? notesMatch[1] : itemText).trim();
+    const notes = (notesMatch?.[2] ?? "")
+      .split("·")
+      .map((note) => note.trim())
+      .filter(Boolean);
+    const drink = notes.find((note) => normalizeCsvHeader(note).startsWith("BEBIDA:"))?.replace(/^Bebida:\s*/i, "");
+    const sauce = notes.find((note) => normalizeCsvHeader(note).startsWith("SALSA:"))?.replace(/^Salsa:\s*/i, "");
+    const removedIngredients = notes
+      .find((note) => normalizeCsvHeader(note).startsWith("SIN:"))
+      ?.replace(/^Sin:\s*/i, "")
+      .split(",")
+      .map((ingredient) => ingredient.trim())
+      .filter(Boolean);
+    const familyBurgers = notes
+      .map((note) => {
+        const familyBurgerMatch = note.match(/^(.+?):\s*sin\s+(.+)$/i);
+
+        if (!familyBurgerMatch) {
+          return null;
+        }
+
+        return {
+          label: familyBurgerMatch[1].trim(),
+          name: familyBurgerMatch[1].trim().replace(/\s+\d+$/, ""),
+          removedIngredients: familyBurgerMatch[2]
+            .split(",")
+            .map((ingredient) => ingredient.trim())
+            .filter(Boolean),
+        };
+      })
+      .filter((burger): burger is NonNullable<typeof burger> => Boolean(burger));
+
+    return {
+      name,
+      quantity,
+      unitPrice: 0,
+      total: 0,
+      drink,
+      sauce,
+      removedIngredients,
+      familyBurgers: familyBurgers.length > 0 ? familyBurgers : undefined,
+    } satisfies SaleOrderItem;
+  });
+
+  const totalQuantity = parsedItems.reduce((total, item) => total + item.quantity, 0) || 1;
+
+  return parsedItems.map((item) => {
+    const itemTotal = Math.round((fallbackTotal * item.quantity) / totalQuantity);
+    return {
+      ...item,
+      unitPrice: item.quantity > 0 ? Math.round(itemTotal / item.quantity) : itemTotal,
+      total: itemTotal,
+    };
+  });
 };
 
 const normalizeText = (value: string) =>
@@ -1121,17 +1217,26 @@ export function useFinanceData() {
       const dateIndex = header.indexOf("FECHA");
       const clientIndex = header.indexOf("CLIENTE");
       const countIndex = header.indexOf("CANT");
+      const exportedOrderIndex = header.indexOf("PEDIDO");
       const productIndex = header.indexOf("PRODUCTO");
-      const detailIndex = header.indexOf("DETALLE DE PEDIDO");
+      const detailIndex = header.includes("DETALLE DE PEDIDO") ? header.indexOf("DETALLE DE PEDIDO") : header.indexOf("DETALLE");
+      const deliveryTypeIndex = header.indexOf("ENTREGA");
+      const deliveryAddressIndex = header.indexOf("DIRECCION");
+      const fulfillmentTimeIndex = header.indexOf("HORA ENTREGA");
+      const deliveryFeeIndex = header.indexOf("DELIVERY");
+      const discountIndex = header.indexOf("DESCUENTO");
       const totalIndex = header.indexOf("TOTAL");
+      const collectedTotalIndex = header.indexOf("TOTAL_COBRADO");
       const statusIndex = header.indexOf("ESTADO");
 
       const hasLegacyDetail = detailIndex !== -1 && productIndex === -1;
       const hasProductDetail = productIndex !== -1 && detailIndex !== -1;
+      const hasExportedDetail = exportedOrderIndex !== -1;
 
       if (
-        [dateIndex, clientIndex, totalIndex, statusIndex].some((index) => index === -1) ||
-        (!hasLegacyDetail && !hasProductDetail)
+        [dateIndex, clientIndex, statusIndex].some((index) => index === -1) ||
+        (totalIndex === -1 && collectedTotalIndex === -1) ||
+        (!hasLegacyDetail && !hasProductDetail && !hasExportedDetail)
       ) {
         saveFeedback(
           "error",
@@ -1152,25 +1257,39 @@ export function useFinanceData() {
 
       for (let i = 1; i < lines.length; i++) {
         const parts = parseCsvLine(lines[i]).map((part) => part.replace(/^"|"$/g, "").trim());
-        const date = parsePurchaseDate(parts[dateIndex] ?? "");
+        const date = parseSaleDate(parts[dateIndex] ?? "");
         const client = (parts[clientIndex] ?? "").trim();
         const product = productIndex === -1 ? "" : (parts[productIndex] ?? "").trim();
+        const orderText = exportedOrderIndex === -1 ? "" : (parts[exportedOrderIndex] ?? "").trim();
         const extraDetail = detailIndex === -1 ? "" : (parts[detailIndex] ?? "").trim();
-        const total = parseCurrencyValue(parts[totalIndex] ?? "");
-        const detail = [product, extraDetail].filter(Boolean).join(" · ");
+        const netTotal = totalIndex === -1 ? 0 : getOptionalCurrencyValue(parts[totalIndex] ?? "");
+        const collectedTotal = collectedTotalIndex === -1 ? 0 : getOptionalCurrencyValue(parts[collectedTotalIndex] ?? "");
+        const deliveryFee = deliveryFeeIndex === -1 ? 0 : getOptionalCurrencyValue(parts[deliveryFeeIndex] ?? "");
+        const discountAmount = discountIndex === -1 ? 0 : getOptionalCurrencyValue(parts[discountIndex] ?? "");
+        const total = collectedTotal > 0 ? collectedTotal : netTotal + deliveryFee;
+        const detail = [orderText || product, extraDetail].filter(Boolean).join(" · ");
+        const deliveryType = deliveryTypeIndex === -1 ? (deliveryFee > 0 ? "delivery" : "retiro") : parseDeliveryType(parts[deliveryTypeIndex] ?? "");
+        const quantity = Number.parseFloat((parts[countIndex] ?? "1").replace(",", ".")) || 1;
+        const orderItems = hasExportedDetail ? parseExportedOrderItems(orderText, Math.max(0, netTotal)) : undefined;
 
         if (!date || !detail || isNaN(total) || total <= 0) continue;
 
         const sale: Sale = {
           id: createId(),
-          createdAt: new Date().toISOString(),
+          createdAt: createSaleCreatedAt(date),
           date,
           client: client.toUpperCase(),
           detail: detail.toUpperCase(),
           total,
           status: parseStatus(parts[statusIndex] ?? ""),
-          quantity: Number.parseFloat((parts[countIndex] ?? "1").replace(",", ".")) || 1,
-          productName: product || detail,
+          quantity: orderItems?.reduce((totalItems, item) => totalItems + item.quantity, 0) || quantity,
+          productName: product || orderText || detail,
+          deliveryType,
+          deliveryAddress: deliveryAddressIndex === -1 ? "" : (parts[deliveryAddressIndex] ?? "").trim(),
+          deliveryFee: deliveryType === "delivery" ? deliveryFee : undefined,
+          discountAmount,
+          fulfillmentTime: fulfillmentTimeIndex === -1 ? "" : (parts[fulfillmentTimeIndex] ?? "").trim(),
+          orderItems,
         };
 
         newSales.push(sale);

@@ -8,8 +8,9 @@ import { saleStatusLabels, shellCardClass } from "../constants/app";
 import { familyComboDescriptions } from "../data/order-menu";
 import { formatShortDate } from "../lib/date";
 import { formatCurrency, formatNumber } from "../lib/format";
-import { setupReceiptPrintPage, type ReceiptPaperSize } from "../lib/receipt-print";
 import { getSaleDeliveryFee, getSaleDiscountAmount, getSaleNetTotal } from "../lib/sales";
+import { printTicket } from "../lib/thermal-printer";
+import { buildDailyReportTicketData, buildTicketData, type ReceiptPaperSize } from "../lib/thermal-ticket";
 import type { DeliveryType, Sale, SaleOrderItem, SaleStatus } from "../types";
 
 const HISTORY_PAGE_SIZE = 8;
@@ -288,7 +289,7 @@ export function SalesSection({
     setReceiptPaperSize("80mm");
   };
 
-  const handleReprintReceipt = () => {
+  const handleReprintReceipt = async () => {
     if (!receiptSale) {
       return;
     }
@@ -298,20 +299,29 @@ export function SalesSection({
       return;
     }
 
-    window.setTimeout(() => {
-      const cleanup = () => {
-        document.body.classList.remove("printing-receipt");
-        window.removeEventListener("afterprint", cleanup);
-        removeReceiptPageStyle();
-        closeReprintReceipt();
-      };
-
-      const removeReceiptPageStyle = setupReceiptPrintPage(receiptPaperSize);
-      document.body.classList.add("printing-receipt");
-      window.addEventListener("afterprint", cleanup, { once: true });
-      window.print();
-      window.setTimeout(cleanup, 500);
-    }, 0);
+    try {
+      await printTicket(
+        buildTicketData({
+          paperSize: receiptPaperSize,
+          sections: receiptPrintSections,
+          createdAt: receiptSale.createdAt,
+          client: receiptSale.client,
+          detail: receiptSale.detail,
+          paymentLabel: saleStatusLabels[receiptSale.status],
+          deliveryType: receiptSale.deliveryType ?? "retiro",
+          deliveryAddress: receiptSale.deliveryAddress,
+          deliveryFee: getSaleDeliveryFee(receiptSale),
+          discountAmount: getSaleDiscountAmount(receiptSale),
+          fulfillmentTime: receiptSale.fulfillmentTime,
+          items: receiptItems,
+          productTotal: receiptProductTotal,
+          total: receiptSale.total,
+        }),
+      );
+      closeReprintReceipt();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "No fue posible reimprimir el ticket ESC/POS.");
+    }
   };
 
   const receiptItems = receiptSale ? formatSaleOrderItems(receiptSale) : [];
@@ -337,28 +347,37 @@ export function SalesSection({
     [dailyReportSales],
   );
 
-  const handlePrintDailyReport = () => {
-    const removeReceiptPageStyle = setupReceiptPrintPage(dailyReportPaperSize);
-    document.body.classList.add("printing-receipt");
-    window.addEventListener(
-      "afterprint",
-      () => {
-        document.body.classList.remove("printing-receipt");
-        removeReceiptPageStyle();
-      },
-      { once: true },
-    );
-    window.print();
-    window.setTimeout(() => {
-      document.body.classList.remove("printing-receipt");
-      removeReceiptPageStyle();
-    }, 500);
+  const handlePrintDailyReport = async () => {
+    try {
+      await printTicket(
+        buildDailyReportTicketData({
+          paperSize: dailyReportPaperSize,
+          dateRange: `${formatReportDateTime(dailyReportRange.start)} a ${formatReportDateTime(dailyReportRange.end)}`,
+          salesCount: dailyReportSales.length,
+          cashTotal: dailyReportTotals.efectivo,
+          cardTotal: dailyReportTotals.debito,
+          pendingTotal: dailyReportTotals.pendiente,
+          deliveryTotal: dailyReportTotals.delivery,
+          totalCollected: dailyReportTotals.efectivo + dailyReportTotals.debito,
+          totalSales: dailyReportTotals.total,
+          sales: dailyReportSales.map((sale) => ({
+            time: new Date(sale.createdAt).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" }),
+            client: sale.client,
+            total: getSaleNetTotal(sale),
+            status: saleStatusLabels[sale.status],
+            deliveryFee: getSaleDeliveryFee(sale),
+          })),
+        }),
+      );
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "No fue posible imprimir el cierre ESC/POS.");
+    }
   };
 
   return (
     <section id="ventas" className="flex h-full min-h-0 flex-col space-y-4">
       {isDailyReportOpen ? (
-        <div data-receipt-print className="pointer-events-none fixed left-[-9999px] top-0">
+        <div data-receipt-preview-source aria-hidden="true" className="pointer-events-none fixed left-[-9999px] top-0">
           <div className="receipt-paper">
             <div className="text-center">
               <p className="text-xs font-black uppercase">Cierre diario</p>
@@ -431,7 +450,7 @@ export function SalesSection({
       ) : null}
 
       {receiptSale ? (
-        <div data-receipt-print className="pointer-events-none fixed left-[-9999px] top-0">
+        <div data-receipt-preview-source aria-hidden="true" className="pointer-events-none fixed left-[-9999px] top-0">
           {receiptPrintSections.kitchen ? (
           <div className="receipt-paper">
             <div className="text-center">

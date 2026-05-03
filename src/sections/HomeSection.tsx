@@ -10,7 +10,8 @@ import {
   type OrderMenuItem,
 } from "../data/order-menu";
 import { formatCurrency } from "../lib/format";
-import { setupReceiptPrintPage, type ReceiptPaperSize } from "../lib/receipt-print";
+import { printTicket } from "../lib/thermal-printer";
+import { buildTicketData, type ReceiptPaperSize } from "../lib/thermal-ticket";
 import type { DeliveryType, SaleOrderItem } from "../types";
 
 type CartItem = {
@@ -565,10 +566,25 @@ export function HomeSection({
       return;
     }
 
-    const cleanupPrint = () => {
-      document.body.classList.remove("printing-receipt");
-      window.removeEventListener("afterprint", cleanupPrint);
-      removeReceiptPageStyle();
+    try {
+      await printTicket(
+        buildTicketData({
+          paperSize: receiptPaperSize,
+          sections: printSections,
+          client: orderName,
+          detail: orderDetail,
+          paymentLabel: "Pendiente",
+          deliveryType,
+          deliveryAddress,
+          deliveryFee: deliveryFeeAmount,
+          discountAmount: discountValue,
+          fulfillmentTime,
+          items: buildOrderItems(),
+          productTotal: cartTotal,
+          total: orderTotal,
+        }),
+      );
+
       setIsPrinting(false);
       setIsReceiptOpen(false);
       setCartItems([]);
@@ -582,23 +598,13 @@ export function HomeSection({
       setFulfillmentTime("");
       setOrderName("");
       setOrderDetail("");
-    };
-
-    const removeReceiptPageStyle = setupReceiptPrintPage(receiptPaperSize);
-    document.body.classList.add("printing-receipt");
-    window.addEventListener("afterprint", cleanupPrint, { once: true });
-    window.print();
-    window.setTimeout(cleanupPrint, 500);
+    } catch (error) {
+      setIsPrinting(false);
+      window.alert(error instanceof Error ? error.message : "No fue posible imprimir el ticket ESC/POS.");
+    }
   };
 
   return (
-    <>
-    {isReceiptOpen ? (
-      <div data-receipt-print className="pointer-events-none fixed left-[-9999px] top-0">
-        {renderReceiptPapers()}
-      </div>
-    ) : null}
-
     <section className="flex h-full min-h-0 flex-col space-y-4 overflow-auto pr-1 lg:overflow-hidden">
       <div className="grid h-full min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(0,1fr)_360px] lg:overflow-hidden">
         <section className={`${shellCardClass} flex min-h-[26rem] flex-col overflow-hidden lg:min-h-0`}>
@@ -1116,6 +1122,5 @@ export function HomeSection({
         </div>
       ) : null}
     </section>
-    </>
   );
 }
