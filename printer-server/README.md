@@ -8,11 +8,39 @@ Servidor local para imprimir tickets con comandos ESC/POS nativos.
 pnpm --dir printer-server install
 ```
 
-## USB
+## Windows con impresora USB instalada
+
+En Windows la forma recomendada es enviar ESC/POS RAW por el spooler usando el nombre exacto de la impresora.
+
+Primero lista impresoras:
+
+```bash
+curl http://127.0.0.1:3001/printers
+```
+
+Luego levanta el servidor con el nombre exacto:
+
+```bat
+set PRINTER_CONNECTION=windows
+set PRINTER_NAME=Nombre exacto de tu impresora
+pnpm printer:dev
+```
+
+Ejemplo:
+
+```bat
+set PRINTER_CONNECTION=windows
+set PRINTER_NAME=POS-80
+pnpm printer:dev
+```
+
+## USB directo con libusb
 
 ```bash
 pnpm printer:dev
 ```
+
+En Windows este modo puede fallar con `LIBUSB_ERROR_NOT_SUPPORTED` si la impresora esta tomada por el driver de Windows. En ese caso usa el modo `windows` de arriba.
 
 Opcionalmente fija vendor/product id:
 

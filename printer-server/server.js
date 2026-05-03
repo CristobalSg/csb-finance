@@ -1,6 +1,10 @@
 import cors from "cors";
 import express from "express";
+import { execFile } from "node:child_process";
+import { writeFile, unlink } from "node:fs/promises";
 import { createRequire } from "node:module";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const require = createRequire(import.meta.url);
 const escpos = require("escpos");
@@ -66,6 +70,135 @@ app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
 app.use(express.json({ limit: "1mb" }));
 
 const getColumns = (paperSize) => (paperSize === "56mm" ? 32 : 48);
+
+class WindowsSpoolDevice {
+  constructor(printerName) {
+    if (!printerName) {
+      throw new Error("Falta PRINTER_NAME. En Windows usa: set PRINTER_NAME=Nombre exacto de la impresora");
+    }
+
+    this.printerName = printerName;
+    this.chunks = [];
+  }
+
+  open(callback) {
+    callback?.(null, this);
+    return this;
+  }
+
+  write(data, callback) {
+    this.chunks.push(Buffer.from(data));
+    callback?.(null);
+    return this;
+  }
+
+  async close(callback) {
+    const payload = Buffer.concat(this.chunks);
+    const filePath = join(tmpdir(), `csb-ticket-${Date.now()}.bin`);
+
+    try {
+      await writeFile(filePath, payload);
+      await sendRawFileToWindowsPrinter(this.printerName, filePath);
+      callback?.(null);
+    } catch (error) {
+      callback?.(error);
+    } finally {
+      await unlink(filePath).catch(() => {});
+      this.chunks = [];
+    }
+
+    return this;
+  }
+}
+
+const sendRawFileToWindowsPrinter = (printerName, filePath) =>
+  new Promise((resolve, reject) => {
+    const script = `
+$printerName = $env:CSB_PRINTER_NAME
+$filePath = $env:CSB_PRINT_FILE
+Add-Type -TypeDefinition @"
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+
+public class RawPrinterHelper {
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+  public class DOCINFOA {
+    [MarshalAs(UnmanagedType.LPStr)] public string pDocName;
+    [MarshalAs(UnmanagedType.LPStr)] public string pOutputFile;
+    [MarshalAs(UnmanagedType.LPStr)] public string pDataType;
+  }
+
+  [DllImport("winspool.Drv", EntryPoint = "OpenPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool OpenPrinter(string szPrinter, out IntPtr hPrinter, IntPtr pd);
+
+  [DllImport("winspool.Drv", EntryPoint = "ClosePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool ClosePrinter(IntPtr hPrinter);
+
+  [DllImport("winspool.Drv", EntryPoint = "StartDocPrinterA", SetLastError = true, CharSet = CharSet.Ansi, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool StartDocPrinter(IntPtr hPrinter, Int32 level, [In, MarshalAs(UnmanagedType.LPStruct)] DOCINFOA di);
+
+  [DllImport("winspool.Drv", EntryPoint = "EndDocPrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool EndDocPrinter(IntPtr hPrinter);
+
+  [DllImport("winspool.Drv", EntryPoint = "StartPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool StartPagePrinter(IntPtr hPrinter);
+
+  [DllImport("winspool.Drv", EntryPoint = "EndPagePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool EndPagePrinter(IntPtr hPrinter);
+
+  [DllImport("winspool.Drv", EntryPoint = "WritePrinter", SetLastError = true, ExactSpelling = true, CallingConvention = CallingConvention.StdCall)]
+  public static extern bool WritePrinter(IntPtr hPrinter, IntPtr pBytes, Int32 dwCount, out Int32 dwWritten);
+
+  public static bool SendBytes(string printerName, byte[] bytes) {
+    IntPtr hPrinter;
+    DOCINFOA di = new DOCINFOA();
+    di.pDocName = "CSB ESC/POS Ticket";
+    di.pDataType = "RAW";
+
+    if (!OpenPrinter(printerName.Normalize(), out hPrinter, IntPtr.Zero)) return false;
+    if (!StartDocPrinter(hPrinter, 1, di)) { ClosePrinter(hPrinter); return false; }
+    if (!StartPagePrinter(hPrinter)) { EndDocPrinter(hPrinter); ClosePrinter(hPrinter); return false; }
+
+    IntPtr unmanagedBytes = Marshal.AllocCoTaskMem(bytes.Length);
+    Marshal.Copy(bytes, 0, unmanagedBytes, bytes.Length);
+    int written = 0;
+    bool success = WritePrinter(hPrinter, unmanagedBytes, bytes.Length, out written);
+    Marshal.FreeCoTaskMem(unmanagedBytes);
+
+    EndPagePrinter(hPrinter);
+    EndDocPrinter(hPrinter);
+    ClosePrinter(hPrinter);
+    return success && written == bytes.Length;
+  }
+}
+"@
+$bytes = [System.IO.File]::ReadAllBytes($filePath)
+if (-not [RawPrinterHelper]::SendBytes($printerName, $bytes)) {
+  throw "No se pudo enviar RAW a la impresora '$printerName'"
+}
+`;
+
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+      {
+        env: {
+          ...process.env,
+          CSB_PRINTER_NAME: printerName,
+          CSB_PRINT_FILE: filePath,
+        },
+      },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(stderr || stdout || error.message));
+          return;
+        }
+
+        resolve();
+      },
+    );
+  });
 
 const normalizeText = (value = "") =>
   String(value)
@@ -247,7 +380,7 @@ const printDailyReport = (printer, section, columns) => {
 };
 
 const createDevice = () => {
-  const connection = process.env.PRINTER_CONNECTION || "usb";
+  const connection = process.env.PRINTER_CONNECTION || (process.platform === "win32" ? "windows" : "usb");
 
   if (connection === "network") {
     const host = process.env.PRINTER_HOST;
@@ -258,6 +391,10 @@ const createDevice = () => {
     }
 
     return new escpos.Network(host, networkPort);
+  }
+
+  if (connection === "windows") {
+    return new WindowsSpoolDevice(process.env.PRINTER_NAME);
   }
 
   const vendorId = process.env.PRINTER_USB_VENDOR_ID ? Number.parseInt(process.env.PRINTER_USB_VENDOR_ID, 16) : undefined;
@@ -316,6 +453,31 @@ const printEscpos = async (job) => {
 
 app.get("/health", (_request, response) => {
   response.json({ ok: true });
+});
+
+app.get("/printers", (_request, response) => {
+  if (process.platform !== "win32") {
+    response.status(400).json({ error: "Listado disponible solo en Windows." });
+    return;
+  }
+
+  execFile(
+    "powershell.exe",
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "Get-Printer | Select-Object -ExpandProperty Name"],
+    (error, stdout, stderr) => {
+      if (error) {
+        response.status(500).send(stderr || error.message);
+        return;
+      }
+
+      response.json({
+        printers: stdout
+          .split(/\r?\n/)
+          .map((name) => name.trim())
+          .filter(Boolean),
+      });
+    },
+  );
 });
 
 app.post("/print", async (request, response) => {
