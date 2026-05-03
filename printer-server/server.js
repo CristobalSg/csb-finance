@@ -6,8 +6,10 @@ const require = createRequire(import.meta.url);
 const escpos = require("escpos");
 
 const patchEscposUsbEvents = () => {
+  const Module = require("node:module");
   const escposUsbRequire = createRequire(require.resolve("escpos-usb"));
   const usbPackage = escposUsbRequire("usb");
+  const usbPackagePath = escposUsbRequire.resolve("usb");
 
   if (!usbPackage.on && usbPackage.usb?.on) {
     usbPackage.on = usbPackage.usb.on.bind(usbPackage.usb);
@@ -19,6 +21,35 @@ const patchEscposUsbEvents = () => {
 
   if (!usbPackage.removeListener && usbPackage.usb?.removeListener) {
     usbPackage.removeListener = usbPackage.usb.removeListener.bind(usbPackage.usb);
+  }
+
+  if (!usbPackage.removeAllListeners && usbPackage.usb?.removeAllListeners) {
+    usbPackage.removeAllListeners = usbPackage.usb.removeAllListeners.bind(usbPackage.usb);
+  }
+
+  const patchedUsbPackage = {
+    ...usbPackage,
+    on: usbPackage.on,
+    off: usbPackage.off,
+    removeListener: usbPackage.removeListener,
+    removeAllListeners: usbPackage.removeAllListeners,
+  };
+
+  if (require.cache[usbPackagePath]) {
+    require.cache[usbPackagePath].exports = patchedUsbPackage;
+  }
+
+  const originalLoad = Module._load;
+
+  if (!Module._escposUsbPatched) {
+    Module._load = function patchedUsbLoad(request, parent, isMain) {
+      if (request === "usb" && parent?.filename?.includes("escpos-usb")) {
+        return patchedUsbPackage;
+      }
+
+      return originalLoad.apply(this, [request, parent, isMain]);
+    };
+    Module._escposUsbPatched = true;
   }
 };
 
