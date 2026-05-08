@@ -70,6 +70,7 @@ const port = Number(process.env.PRINTER_SERVER_PORT || 3001);
 const host = process.env.PRINTER_SERVER_HOST || "127.0.0.1";
 const receiptLogoPath = process.env.RECEIPT_LOGO_PATH || resolve(__dirname, "../public/receipt-logo-thermal.png");
 let receiptLogoPromise;
+let receiptLogoLogged = false;
 
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
 app.use(express.json({ limit: "1mb" }));
@@ -78,6 +79,11 @@ const getColumns = (paperSize) => (paperSize === "56mm" ? 32 : 48);
 
 const loadReceiptLogo = () => {
   if (process.env.PRINT_RECEIPT_LOGO === "false" || !existsSync(receiptLogoPath)) {
+    if (!receiptLogoLogged) {
+      console.warn(`Logo de boleta desactivado o no encontrado: ${receiptLogoPath}`);
+      receiptLogoLogged = true;
+    }
+
     return Promise.resolve(null);
   }
 
@@ -86,6 +92,11 @@ const loadReceiptLogo = () => {
       if (image instanceof Error) {
         reject(image);
         return;
+      }
+
+      if (image && !receiptLogoLogged) {
+        console.log(`Logo de boleta cargado: ${receiptLogoPath} (${image.size.width}x${image.size.height})`);
+        receiptLogoLogged = true;
       }
 
       resolveImage(image || null);
@@ -359,7 +370,7 @@ const printReceiptLogo = async (printer) => {
   }
 
   printer.align("ct");
-  printer.raster(logo, "normal");
+  await printer.image(logo, "d24");
   printer.align("lt");
   printer.feed(1);
 };
