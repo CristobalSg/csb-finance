@@ -71,6 +71,7 @@ const host = process.env.PRINTER_SERVER_HOST || "127.0.0.1";
 const receiptLogoPath = process.env.RECEIPT_LOGO_PATH || resolve(__dirname, "../public/receipt-logo-thermal.png");
 const printerLineSpacing = Number(process.env.PRINTER_LINE_SPACING || 24);
 const printerCutFeedLines = Number(process.env.PRINTER_CUT_FEED_LINES || 1);
+const printerEventCutFeedLines = Number(process.env.PRINTER_EVENT_CUT_FEED_LINES || 4);
 let receiptLogoPromise;
 let receiptLogoLogged = false;
 
@@ -310,9 +311,9 @@ const setBold = (printer, enabled) => {
   printer.style(enabled ? "b" : "normal");
 };
 
-const setTicketLineSpacing = (printer) => {
-  if (Number.isFinite(printerLineSpacing) && printerLineSpacing >= 0 && printerLineSpacing <= 255) {
-    printer.lineSpace(printerLineSpacing);
+const setTicketLineSpacing = (printer, lineSpacing = printerLineSpacing) => {
+  if (Number.isFinite(lineSpacing) && lineSpacing >= 0 && lineSpacing <= 255) {
+    printer.lineSpace(lineSpacing);
   }
 };
 
@@ -323,10 +324,10 @@ const writeCentered = (printer, value, columns, bold = false) => {
   setBold(printer, false);
 };
 
-const writeCenteredWrapped = (printer, value, columns, bold = false) => {
+const writeCenteredWrapped = (printer, value, columns, bold = false, lineColumns = columns) => {
   printer.align("lt");
   setBold(printer, bold);
-  for (const line of splitText(value, columns)) {
+  for (const line of splitText(value, lineColumns)) {
     writeLine(printer, centerText(line, columns));
   }
   setBold(printer, false);
@@ -451,6 +452,7 @@ const printDailyReport = (printer, section, columns) => {
 
 const printEventTicket = async (printer, section, columns) => {
   await printReceiptLogo(printer);
+  setTicketLineSpacing(printer, section.lineSpacing);
   writeCentered(printer, "Ceeseburger's Labranza", columns);
   writeSeparator(printer, columns);
 
@@ -471,7 +473,8 @@ const printEventTicket = async (printer, section, columns) => {
 
   writeSeparator(printer, columns);
   writeLine(printer);
-  writeCenteredWrapped(printer, section.message || "Feliz Día del Estudiante", columns, true);
+  writeCenteredWrapped(printer, section.message || "Feliz Día del Estudiante", columns, true, Math.max(20, columns - 8));
+  writeLine(printer);
 };
 
 const createDevice = () => {
@@ -538,7 +541,8 @@ const printEscpos = async (job) => {
       await printEventTicket(printer, section, columns);
     }
 
-    printer.cut(undefined, Number.isFinite(printerCutFeedLines) ? printerCutFeedLines : 1);
+    const configuredCutFeedLines = section.type === "evento" ? printerEventCutFeedLines : printerCutFeedLines;
+    printer.cut(undefined, Number.isFinite(configuredCutFeedLines) ? configuredCutFeedLines : 1);
 
     if (index < job.sections.length - 1) {
       printer.feed(1);

@@ -10,14 +10,17 @@ type EventForm = {
   studentName: string;
   removedIngredients: string[];
   message: string;
+  lineSpacing: number;
 };
 
 const defaultEventMessage = "Feliz Día del Estudiante {nombre}, 8° E, Instituto Claret";
+const defaultLineSpacing = 24;
 
 const emptyForm: EventForm = {
   studentName: "",
   removedIngredients: [],
   message: defaultEventMessage,
+  lineSpacing: defaultLineSpacing,
 };
 
 const getEventMessage = (message: string, name: string) => message.replaceAll("{nombre}", name.trim() || "{nombre}");
@@ -77,6 +80,7 @@ export function EventsSection() {
           burgerName: selectedBurger.name,
           removedIngredients: form.removedIngredients,
           message: getEventMessage(form.message, studentName),
+          lineSpacing: form.lineSpacing,
         }),
       );
 
@@ -139,7 +143,10 @@ export function EventsSection() {
             <div className="grid min-h-0 flex-1 gap-4 overflow-hidden lg:grid-cols-[calc(80mm+2rem)_minmax(0,1fr)]">
               <div className="min-h-0 overflow-auto rounded-[1.5rem] bg-stone-100 p-4">
                 <div data-receipt-preview className="space-y-4" style={receiptPreviewStyle}>
-                  <div className="receipt-paper mx-auto lg:mx-0">
+                  <div
+                    className="receipt-paper mx-auto lg:mx-0"
+                    style={{ lineHeight: `${Math.max(1.05, form.lineSpacing / defaultLineSpacing)}rem` }}
+                  >
                     <div className="text-center">
                       <img src="/receipt-logo.png" alt="Ceese Burger's" className="receipt-logo" />
                       <p className="mt-1 text-xs font-bold">Ceeseburger's Labranza</p>
@@ -221,6 +228,40 @@ export function EventsSection() {
                       className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm font-bold leading-6 text-rose-900 outline-none focus:border-fuchsia-400"
                     />
                   </label>
+
+                  <div>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Interlineado</p>
+                      <span className="text-xs font-bold text-fuchsia-700">{form.lineSpacing}</span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-3 gap-2 rounded-full bg-rose-50 p-1">
+                      {[
+                        { label: "Compacto", value: 18 },
+                        { label: "Normal", value: defaultLineSpacing },
+                        { label: "Amplio", value: 32 },
+                      ].map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => setForm((current) => ({ ...current, lineSpacing: option.value }))}
+                          className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] ${
+                            form.lineSpacing === option.value ? "bg-fuchsia-600 text-white" : "text-rose-700"
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      type="range"
+                      min={16}
+                      max={40}
+                      step={1}
+                      value={form.lineSpacing}
+                      onChange={(event) => setForm((current) => ({ ...current, lineSpacing: Number(event.target.value) }))}
+                      className="mt-3 w-full accent-fuchsia-600"
+                    />
+                  </div>
                 </div>
 
                 <div className="mt-4 flex flex-col-reverse gap-3 border-t border-rose-100 pt-4">

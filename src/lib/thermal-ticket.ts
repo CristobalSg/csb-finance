@@ -63,6 +63,7 @@ export type TicketSection =
       burgerName: string;
       removedIngredients: string[];
       message: string;
+      lineSpacing?: number;
     };
 
 export type TicketPrintJob = {
@@ -116,6 +117,7 @@ export type EventTicketInput = {
   burgerName: string;
   removedIngredients: string[];
   message?: string;
+  lineSpacing?: number;
 };
 
 const defaultBusinessName = "Ceese Burger's";
@@ -314,6 +316,7 @@ export const buildEventTicketData = (eventTicket: EventTicketInput): TicketPrint
         burgerName: eventTicket.burgerName,
         removedIngredients: eventTicket.removedIngredients,
         message: eventTicket.message ?? `Feliz Día del Estudiante ${studentName}, 8° E, Instituto Claret`,
+        lineSpacing: eventTicket.lineSpacing,
       },
     ],
   };
