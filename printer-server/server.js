@@ -69,6 +69,8 @@ const app = express();
 const port = Number(process.env.PRINTER_SERVER_PORT || 3001);
 const host = process.env.PRINTER_SERVER_HOST || "127.0.0.1";
 const receiptLogoPath = process.env.RECEIPT_LOGO_PATH || resolve(__dirname, "../public/receipt-logo-thermal.png");
+const printerLineSpacing = Number(process.env.PRINTER_LINE_SPACING || 24);
+const printerCutFeedLines = Number(process.env.PRINTER_CUT_FEED_LINES || 1);
 let receiptLogoPromise;
 let receiptLogoLogged = false;
 
@@ -308,6 +310,12 @@ const setBold = (printer, enabled) => {
   printer.style(enabled ? "b" : "normal");
 };
 
+const setTicketLineSpacing = (printer) => {
+  if (Number.isFinite(printerLineSpacing) && printerLineSpacing >= 0 && printerLineSpacing <= 255) {
+    printer.lineSpace(printerLineSpacing);
+  }
+};
+
 const writeCentered = (printer, value, columns, bold = false) => {
   printer.align("lt");
   setBold(printer, bold);
@@ -372,6 +380,7 @@ const printReceiptLogo = async (printer) => {
   printer.align("ct");
   await printer.image(logo, "d24");
   printer.align("lt");
+  setTicketLineSpacing(printer);
   printer.feed(1);
 };
 
@@ -431,6 +440,33 @@ const printDailyReport = (printer, section, columns) => {
   }
 };
 
+const printEventTicket = async (printer, section, columns) => {
+  await printReceiptLogo(printer);
+  writeCentered(printer, section.businessName || "Ceese Burger's", columns, true);
+  writeCentered(printer, section.title || "Boleta evento", columns);
+  writeCentered(printer, "Ceeseburger's Labranza", columns);
+  writeSeparator(printer, columns);
+
+  if (section.studentName) {
+    writeWrapped(printer, `Nombre: ${section.studentName}`, columns);
+  }
+
+  writeSeparator(printer, columns);
+  setBold(printer, true);
+  writeWrapped(printer, `1 x ${section.burgerName || "Hamburguesa"}`, columns);
+  setBold(printer, false);
+
+  if (section.removedIngredients?.length) {
+    writeWrapped(printer, `Sin: ${section.removedIngredients.join(", ")}`, columns, "  ");
+  } else {
+    writeWrapped(printer, "Sin cambios de ingredientes", columns, "  ");
+  }
+
+  writeSeparator(printer, columns);
+  writeLine(printer);
+  writeCentered(printer, section.message || "Feliz Día del Estudiante", columns, true);
+};
+
 const createDevice = () => {
   const connection = process.env.PRINTER_CONNECTION || (process.platform === "win32" ? "windows" : "usb");
 
@@ -480,6 +516,7 @@ const printEscpos = async (job) => {
 
   printer.font("a");
   printer.align("lt");
+  setTicketLineSpacing(printer);
 
   for (const [index, section] of job.sections.entries()) {
     if (section.type === "comanda") {
@@ -490,10 +527,11 @@ const printEscpos = async (job) => {
       printThanks(printer, section, columns);
     } else if (section.type === "cierre-diario") {
       printDailyReport(printer, section, columns);
+    } else if (section.type === "evento") {
+      await printEventTicket(printer, section, columns);
     }
 
-    printer.feed(3);
-    printer.cut();
+    printer.cut(undefined, Number.isFinite(printerCutFeedLines) ? printerCutFeedLines : 1);
 
     if (index < job.sections.length - 1) {
       printer.feed(1);

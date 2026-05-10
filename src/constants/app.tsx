@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { DashboardIcon, HomeIcon, IngredientIcon, InventoryIcon, PurchaseIcon, SalesIcon } from "../components/icons";
+import { DashboardIcon, EventIcon, HomeIcon, IngredientIcon, InventoryIcon, PurchaseIcon, SalesIcon } from "../components/icons";
 import type { DeliveryType, InternalSupplyMode, PurchaseEntryType, PurchaseItemType, SaleStatus, StockControlMode } from "../types";
 
 export type PurchaseFormState = {
@@ -37,7 +37,7 @@ export type ToastState = {
 };
 
 export type NavItem = {
-  id: "home" | "dashboard" | "compras" | "ventas" | "inventario" | "ingredientes";
+  id: "home" | "dashboard" | "compras" | "ventas" | "inventario" | "ingredientes" | "eventos";
   label: string;
   icon: ReactNode;
 };
@@ -111,4 +111,5 @@ export const navItems: NavItem[] = [
   { id: "ventas", label: "Ventas", icon: <SalesIcon /> },
   { id: "inventario", label: "Inventario", icon: <InventoryIcon /> },
   { id: "ingredientes", label: "Control de ingredientes", icon: <IngredientIcon /> },
+  { id: "eventos", label: "Eventos", icon: <EventIcon /> },
 ];

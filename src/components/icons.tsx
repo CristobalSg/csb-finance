@@ -78,6 +78,17 @@ export function IngredientIcon() {
   );
 }
 
+export function EventIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 3.75v2.5M17 3.75v2.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.75 8.25h14.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.25 5.25h11.5a2 2 0 0 1 2 2v10.5a2 2 0 0 1-2 2H6.25a2 2 0 0 1-2-2V7.25a2 2 0 0 1 2-2Z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 14 2.25 2.25 5.25-5.5" />
+    </svg>
+  );
+}
+
 export function DotsIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">

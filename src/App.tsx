@@ -8,6 +8,7 @@ import { navItems } from "./constants/app";
 import { useFinanceData } from "./hooks/useFinanceData";
 import { IngredientControlPage } from "./pages/IngredientControlPage";
 import { DashboardSection } from "./sections/DashboardSection";
+import { EventsSection } from "./sections/EventsSection";
 import { HomeSection } from "./sections/HomeSection";
 import { InventorySection } from "./sections/InventorySection";
 import { PurchasesSection } from "./sections/PurchasesSection";
@@ -77,6 +78,7 @@ export default function App() {
       />
     ),
     ingredientes: <IngredientControlPage />,
+    eventos: <EventsSection />,
   } as const;
 
   return (

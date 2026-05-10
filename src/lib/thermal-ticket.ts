@@ -53,6 +53,16 @@ export type TicketSection =
       totalCollected: number;
       totalSales: number;
       sales: TicketItem[];
+    }
+  | {
+      type: "evento";
+      title: string;
+      businessName: string;
+      date: string;
+      studentName: string;
+      burgerName: string;
+      removedIngredients: string[];
+      message: string;
     };
 
 export type TicketPrintJob = {
@@ -97,6 +107,15 @@ export type DailyReportTicketInput = {
     status: string;
     deliveryFee?: number;
   }[];
+};
+
+export type EventTicketInput = {
+  businessName?: string;
+  paperSize: ReceiptPaperSize;
+  studentName: string;
+  burgerName: string;
+  removedIngredients: string[];
+  message?: string;
 };
 
 const defaultBusinessName = "Ceese Burger's";
@@ -273,6 +292,28 @@ export const buildDailyReportTicketData = (report: DailyReportTicketInput): Tick
           price: sale.total,
           notes: [sale.status, sale.deliveryFee ? `Delivery ${formatTicketCurrency(sale.deliveryFee)}` : ""].filter(Boolean),
         })),
+      },
+    ],
+  };
+};
+
+export const buildEventTicketData = (eventTicket: EventTicketInput): TicketPrintJob => {
+  const businessName = eventTicket.businessName ?? defaultBusinessName;
+  const studentName = eventTicket.studentName.trim();
+
+  return {
+    businessName,
+    paperSize: eventTicket.paperSize,
+    sections: [
+      {
+        type: "evento",
+        title: "Boleta evento",
+        businessName,
+        date: new Date().toLocaleString("es-CL"),
+        studentName,
+        burgerName: eventTicket.burgerName,
+        removedIngredients: eventTicket.removedIngredients,
+        message: eventTicket.message ?? `Feliz Día del Estudiante ${studentName}, 8° E, Instituto Claret`,
       },
     ],
   };

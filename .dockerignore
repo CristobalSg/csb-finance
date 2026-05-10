@@ -1,0 +1,7 @@
+node_modules
+printer-server/node_modules
+dist
+.git
+.DS_Store
+*.log
+
