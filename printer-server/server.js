@@ -323,6 +323,15 @@ const writeCentered = (printer, value, columns, bold = false) => {
   setBold(printer, false);
 };
 
+const writeCenteredWrapped = (printer, value, columns, bold = false) => {
+  printer.align("lt");
+  setBold(printer, bold);
+  for (const line of splitText(value, columns)) {
+    writeLine(printer, centerText(line, columns));
+  }
+  setBold(printer, false);
+};
+
 const writeWrapped = (printer, value, columns, indent = "") => {
   for (const line of splitText(value, columns - indent.length)) {
     writeLine(printer, `${indent}${line}`);
@@ -442,8 +451,6 @@ const printDailyReport = (printer, section, columns) => {
 
 const printEventTicket = async (printer, section, columns) => {
   await printReceiptLogo(printer);
-  writeCentered(printer, section.businessName || "Ceese Burger's", columns, true);
-  writeCentered(printer, section.title || "Boleta evento", columns);
   writeCentered(printer, "Ceeseburger's Labranza", columns);
   writeSeparator(printer, columns);
 
@@ -464,7 +471,7 @@ const printEventTicket = async (printer, section, columns) => {
 
   writeSeparator(printer, columns);
   writeLine(printer);
-  writeCentered(printer, section.message || "Feliz Día del Estudiante", columns, true);
+  writeCenteredWrapped(printer, section.message || "Feliz Día del Estudiante", columns, true);
 };
 
 const createDevice = () => {
