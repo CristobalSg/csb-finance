@@ -1,8 +1,9 @@
-import { type CSSProperties, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useState } from "react";
 
 import { PrintIcon, XIcon } from "../components/icons";
 import { shellCardClass } from "../constants/app";
 import { orderMenuItems, type OrderMenuItem } from "../data/order-menu";
+import { createId } from "../lib/id";
 import { printTicket } from "../lib/thermal-printer";
 import { buildEventTicketData, type ReceiptPaperSize } from "../lib/thermal-ticket";
 
@@ -13,8 +14,18 @@ type EventForm = {
   lineSpacing: number;
 };
 
+type EventPrintRecord = {
+  id: string;
+  createdAt: string;
+  studentName: string;
+  burgerName: string;
+  removedIngredients: string[];
+  message: string;
+};
+
 const defaultEventMessage = "Feliz Día del Estudiante {nombre}, 8° E, Instituto Claret";
 const defaultLineSpacing = 24;
+const eventPrintHistoryKey = "csb-event-print-history";
 
 const emptyForm: EventForm = {
   studentName: "",
@@ -25,13 +36,32 @@ const emptyForm: EventForm = {
 
 const getEventMessage = (message: string, name: string) => message.replaceAll("{nombre}", name.trim() || "{nombre}");
 
+const loadEventPrintHistory = (): EventPrintRecord[] => {
+  try {
+    const raw = localStorage.getItem(eventPrintHistoryKey);
+    return raw ? (JSON.parse(raw) as EventPrintRecord[]) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveEventPrintHistory = (records: EventPrintRecord[]) => {
+  localStorage.setItem(eventPrintHistoryKey, JSON.stringify(records));
+};
+
 export function EventsSection() {
   const burgerItems = useMemo(() => orderMenuItems.filter((item) => item.category === "burgers"), []);
   const [selectedBurger, setSelectedBurger] = useState<OrderMenuItem | null>(null);
   const [form, setForm] = useState<EventForm>(emptyForm);
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("80mm");
   const [isPrinting, setIsPrinting] = useState(false);
+  const [printingRecordId, setPrintingRecordId] = useState<string | null>(null);
+  const [printHistory, setPrintHistory] = useState<EventPrintRecord[]>([]);
   const receiptPreviewStyle = { "--receipt-width": paperSize } as CSSProperties;
+
+  useEffect(() => {
+    setPrintHistory(loadEventPrintHistory());
+  }, []);
 
   const closeModal = () => {
     if (isPrinting) {
@@ -58,8 +88,53 @@ export function EventsSection() {
     }));
   };
 
+  const printEventRecord = async (record: EventPrintRecord) => {
+    await printTicket(
+      buildEventTicketData({
+        paperSize,
+        studentName: record.studentName,
+        burgerName: record.burgerName,
+        removedIngredients: record.removedIngredients,
+        message: record.message,
+        lineSpacing: form.lineSpacing,
+      }),
+    );
+  };
+
+  const addHistoryRecord = (record: EventPrintRecord) => {
+    setPrintHistory((current) => {
+      const nextRecords = [record, ...current];
+      saveEventPrintHistory(nextRecords);
+      return nextRecords;
+    });
+  };
+
+  const deleteHistoryRecord = (id: string) => {
+    setPrintHistory((current) => {
+      const nextRecords = current.filter((record) => record.id !== id);
+      saveEventPrintHistory(nextRecords);
+      return nextRecords;
+    });
+  };
+
+  const handleReprint = async (record: EventPrintRecord) => {
+    if (isPrinting || printingRecordId) {
+      return;
+    }
+
+    setPrintingRecordId(record.id);
+
+    try {
+      await printEventRecord(record);
+      setPrintingRecordId(null);
+    } catch (error) {
+      setPrintingRecordId(null);
+      window.alert(error instanceof Error ? error.message : "No fue posible reimprimir la boleta del evento.");
+    }
+  };
+
   const handlePrint = async () => {
-    if (!selectedBurger || isPrinting) {
+    if (!selectedBurger || isPrinting || printingRecordId) {
       return;
     }
 
@@ -73,16 +148,17 @@ export function EventsSection() {
     setIsPrinting(true);
 
     try {
-      await printTicket(
-        buildEventTicketData({
-          paperSize,
-          studentName,
-          burgerName: selectedBurger.name,
-          removedIngredients: form.removedIngredients,
-          message: getEventMessage(form.message, studentName),
-          lineSpacing: form.lineSpacing,
-        }),
-      );
+      const record: EventPrintRecord = {
+        id: createId(),
+        createdAt: new Date().toISOString(),
+        studentName,
+        burgerName: selectedBurger.name,
+        removedIngredients: form.removedIngredients,
+        message: getEventMessage(form.message, studentName),
+      };
+
+      await printEventRecord(record);
+      addHistoryRecord(record);
 
       setIsPrinting(false);
       closeModal();
@@ -120,6 +196,68 @@ export function EventsSection() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section className={`${shellCardClass}`}>
+        <div className="flex flex-col gap-3 border-b border-rose-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-rose-500">Historial</p>
+            <h3 className="mt-1 text-xl font-bold text-rose-950">Impresiones de eventos</h3>
+          </div>
+          <span className="rounded-full bg-rose-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-rose-500">
+            {printHistory.length} impresiones
+          </span>
+        </div>
+
+        {printHistory.length === 0 ? (
+          <div className="mt-5 rounded-[1.5rem] border border-dashed border-rose-200 bg-rose-50/60 px-5 py-8 text-center text-sm leading-6 text-rose-700">
+            Todavia no hay impresiones de eventos guardadas.
+          </div>
+        ) : (
+          <div className="mt-5 grid gap-3 lg:grid-cols-2">
+            {printHistory.map((record) => (
+              <article key={record.id} className="rounded-[1.25rem] border border-rose-100 bg-white/70 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate font-black text-rose-950">{record.studentName}</p>
+                    <p className="mt-1 text-sm font-semibold text-fuchsia-700">{record.burgerName}</p>
+                    <p className="mt-1 text-xs font-semibold text-rose-500">
+                      {new Date(record.createdAt).toLocaleString("es-CL")}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-3 space-y-1 text-sm text-rose-800">
+                  <p>
+                    <span className="font-bold">Sin:</span>{" "}
+                    {record.removedIngredients.length > 0 ? record.removedIngredients.join(", ") : "Sin cambios"}
+                  </p>
+                  <p className="line-clamp-2 font-semibold">{record.message}</p>
+                </div>
+
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => void handleReprint(record)}
+                    disabled={Boolean(printingRecordId) || isPrinting}
+                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-fuchsia-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-fuchsia-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <PrintIcon />
+                    {printingRecordId === record.id ? "Reimprimiendo..." : "Reimprimir"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteHistoryRecord(record.id)}
+                    disabled={Boolean(printingRecordId) || isPrinting}
+                    className="rounded-full border border-rose-200 bg-white px-4 py-2.5 text-sm font-semibold text-rose-700 transition hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
       </section>
 
       {selectedBurger ? (

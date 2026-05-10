@@ -300,7 +300,7 @@ const twoColumnLine = (left, right, columns) => {
 };
 
 const writeLine = (printer, value = "") => {
-  printer.text(`${normalizeText(value)}\n`);
+  printer.text(normalizeText(value));
 };
 
 const writeSeparator = (printer, columns) => {
