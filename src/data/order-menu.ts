@@ -32,6 +32,9 @@ export const comboDrinkOptions = ["Sprite", "Coca-Cola", "Fanta"];
 export const sideSauceOptions = ["Sin salsa", "Mayonesa", "Ketchup", "Mostaza", "BBQ", "Chick Fill A"];
 
 export const familyComboDescriptions: Record<string, string> = {
+  "Trio Familiar": "1 bacon + 2 clasicas",
+  "Trio Premium": "2 bacon + 1 clasica",
+  "Trio Premium Smoke": "3 smoke normales",
   "Combo Familiar": "3 clasicas + 2 bacon",
   "Full Bacon": "5 bacon",
   "Full Clasicas": "5 clasicas",
@@ -40,6 +43,15 @@ export const familyComboDescriptions: Record<string, string> = {
 
 const clasicaRemovableIngredients = ["Tomate", "Lechuga", "Aderezo", "Queso cheddar"];
 const baconRemovableIngredients = ["Tocino", "Salsa BBQ", "Cebolla caramelizada", "Queso cheddar"];
+const smokeRemovableIngredients = ["Cebolla crispy", "Tocino", "Carne", "Queso cheddar", "Salsa BBQ", "Mayonesa"];
+const smokeXlRemovableIngredients = [
+  "Cebolla crispy",
+  "Doble tocino",
+  "Doble carne",
+  "Triple cheddar",
+  "Salsa BBQ",
+  "Mayonesa",
+];
 
 const createFamilyBurgers = (name: string, count: number, removableIngredients: string[]): FamilyComboBurger[] =>
   Array.from({ length: count }, (_, index) => ({
@@ -49,20 +61,22 @@ const createFamilyBurgers = (name: string, count: number, removableIngredients: 
   }));
 
 export const familyComboBurgers: Record<string, FamilyComboBurger[]> = {
+  "Trio Familiar": [
+    ...createFamilyBurgers("Bacon", 1, baconRemovableIngredients),
+    ...createFamilyBurgers("Clasica", 2, clasicaRemovableIngredients),
+  ],
+  "Trio Premium": [
+    ...createFamilyBurgers("Bacon", 2, baconRemovableIngredients),
+    ...createFamilyBurgers("Clasica", 1, clasicaRemovableIngredients),
+  ],
+  "Trio Premium Smoke": createFamilyBurgers("Smoke", 3, smokeRemovableIngredients),
   "Combo Familiar": [
     ...createFamilyBurgers("Clasica", 3, clasicaRemovableIngredients),
     ...createFamilyBurgers("Bacon", 2, baconRemovableIngredients),
   ],
   "Full Bacon": createFamilyBurgers("Bacon", 5, baconRemovableIngredients),
   "Full Clasicas": createFamilyBurgers("Clasica", 5, clasicaRemovableIngredients),
-  "Smoke Hause XL x2": createFamilyBurgers("Smoke XL", 2, [
-    "Cebolla crispy",
-    "Doble tocino",
-    "Doble carne",
-    "Triple cheddar",
-    "Salsa BBQ",
-    "Mayonesa",
-  ]),
+  "Smoke Hause XL x2": createFamilyBurgers("Smoke XL", 2, smokeXlRemovableIngredients),
 };
 
 export const orderMenuCategories: OrderMenuCategory[] = [
@@ -77,6 +91,9 @@ export const orderMenuCategories: OrderMenuCategory[] = [
 
 export const orderMenuItems: OrderMenuItem[] = [
   { name: "Smoke Hause XL x2", price: 8000, category: "offers" },
+  { name: "Trio Familiar", price: 5990, category: "offers" },
+  { name: "Trio Premium", price: 6390, category: "offers" },
+  { name: "Trio Premium Smoke", price: 6690, category: "offers" },
   {
     name: "Combo Clasico",
     price: 4490,
