@@ -458,8 +458,8 @@ const printItems = (printer, items, columns, showPrices) => {
 
 const printComanda = (printer, section, columns) => {
   writeCentered(printer, section.date || new Date().toLocaleString("es-CL"), columns);
-  setTextSize(printer, 1, 1);
-  writeCentered(printer, section.heading || "Ahora", Math.floor(columns / 2), true);
+  setTextSize(printer, 2, 2);
+  writeCentered(printer, section.heading || "Ahora", Math.floor(columns / 3), true);
   setTextSize(printer);
   writeSeparator(printer, columns);
 
@@ -500,12 +500,13 @@ const printReceiptLogo = async (printer, paperSize, logoPath) => {
 const printBoleta = async (printer, section, columns, paperSize, logoPath) => {
   await printReceiptLogo(printer, paperSize, logoPath);
   writeCentered(printer, section.businessName || "Ceese Burger's", columns, true);
-  writeCentered(printer, section.title || "Boleta", columns);
   writeCentered(printer, section.date || new Date().toLocaleString("es-CL"), columns);
   writeSeparator(printer, columns);
 
   for (const line of section.meta || []) {
+    setBold(printer, normalizeText(line).toLowerCase().startsWith("direccion:"));
     writeWrapped(printer, line, columns);
+    setBold(printer, false);
   }
 
   writeSeparator(printer, columns);
@@ -520,10 +521,10 @@ const printBoleta = async (printer, section, columns, paperSize, logoPath) => {
   setBold(printer, true);
   writeLine(printer, twoColumnLine("Total", formatCurrency(section.total), columns));
   setBold(printer, false);
+  writeLine(printer);
 };
 
 const printThanks = (printer, section, columns) => {
-  writeLine(printer);
   for (const line of section.lines || ["Muchas gracias"]) {
     writeCentered(printer, line, columns, true);
   }
