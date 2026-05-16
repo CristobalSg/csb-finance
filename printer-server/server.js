@@ -75,6 +75,9 @@ const printerCutFeedLines = Number(process.env.PRINTER_CUT_FEED_LINES || 4);
 const printerEventCutFeedLines = Number(process.env.PRINTER_EVENT_CUT_FEED_LINES || 4);
 const receiptLogoWidth80mm = Number(process.env.RECEIPT_LOGO_WIDTH_80MM || 384);
 const receiptLogoWidth56mm = Number(process.env.RECEIPT_LOGO_WIDTH_56MM || 256);
+const receiptPaperDots80mm = Number(process.env.RECEIPT_PAPER_DOTS_80MM || 576);
+const receiptPaperDots56mm = Number(process.env.RECEIPT_PAPER_DOTS_56MM || 384);
+const receiptLogoBottomFeedLines = Number(process.env.RECEIPT_LOGO_BOTTOM_FEED_LINES || 0);
 let receiptLogoPromise;
 const receiptLogoPromises = new Map();
 let receiptLogoLogged = false;
@@ -86,6 +89,11 @@ const getColumns = (paperSize) => (paperSize === "56mm" ? 32 : 48);
 
 const getReceiptLogoWidth = (paperSize) => {
   const configuredWidth = paperSize === "56mm" ? receiptLogoWidth56mm : receiptLogoWidth80mm;
+  return Number.isFinite(configuredWidth) && configuredWidth > 0 ? Math.floor(configuredWidth) : undefined;
+};
+
+const getReceiptPaperDots = (paperSize) => {
+  const configuredWidth = paperSize === "56mm" ? receiptPaperDots56mm : receiptPaperDots80mm;
   return Number.isFinite(configuredWidth) && configuredWidth > 0 ? Math.floor(configuredWidth) : undefined;
 };
 
@@ -171,6 +179,31 @@ const resizeReceiptLogo = (logo, maxWidth) => {
   };
 
   return resizedLogo;
+};
+
+const centerReceiptLogo = (logo, canvasWidth) => {
+  if (!logo || !canvasWidth || logo.size.width >= canvasWidth) {
+    return logo;
+  }
+
+  const width = canvasWidth;
+  const height = logo.size.height;
+  const offsetX = Math.floor((width - logo.size.width) / 2);
+  const data = new Array(width * height).fill(0);
+
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < logo.size.width; x += 1) {
+      data[y * width + offsetX + x] = logo.data[y * logo.size.width + x];
+    }
+  }
+
+  const centeredLogo = Object.create(Object.getPrototypeOf(logo));
+  centeredLogo.data = data;
+  centeredLogo.pixels = {
+    shape: [width, height, logo.size.colors],
+  };
+
+  return centeredLogo;
 };
 
 class WindowsSpoolDevice {
@@ -372,6 +405,10 @@ const setBold = (printer, enabled) => {
   printer.style(enabled ? "b" : "normal");
 };
 
+const setTextSize = (printer, width = 0, height = 0) => {
+  printer.size(width, height);
+};
+
 const setTicketLineSpacing = (printer, lineSpacing = printerLineSpacing) => {
   if (Number.isFinite(lineSpacing) && lineSpacing >= 0 && lineSpacing <= 255) {
     printer.lineSpace(lineSpacing);
@@ -420,10 +457,10 @@ const printItems = (printer, items, columns, showPrices) => {
 };
 
 const printComanda = (printer, section, columns) => {
-  writeCentered(printer, section.title || "Comanda", columns, true);
   writeCentered(printer, section.date || new Date().toLocaleString("es-CL"), columns);
-  writeLine(printer);
-  writeCentered(printer, section.heading || "Ahora", columns, true);
+  setTextSize(printer, 1, 1);
+  writeCentered(printer, section.heading || "Ahora", Math.floor(columns / 2), true);
+  setTextSize(printer);
   writeSeparator(printer, columns);
 
   for (const line of section.meta || []) {
@@ -448,12 +485,16 @@ const printReceiptLogo = async (printer, paperSize, logoPath) => {
     return;
   }
 
-  const printableLogo = resizeReceiptLogo(logo, getReceiptLogoWidth(paperSize));
+  const resizedLogo = resizeReceiptLogo(logo, getReceiptLogoWidth(paperSize));
+  const printableLogo = centerReceiptLogo(resizedLogo, getReceiptPaperDots(paperSize));
   printer.align("ct");
   await printer.image(printableLogo, "d24");
   printer.align("lt");
   setTicketLineSpacing(printer);
-  printer.feed(1);
+
+  if (Number.isFinite(receiptLogoBottomFeedLines) && receiptLogoBottomFeedLines > 0) {
+    printer.feed(receiptLogoBottomFeedLines);
+  }
 };
 
 const printBoleta = async (printer, section, columns, paperSize, logoPath) => {
