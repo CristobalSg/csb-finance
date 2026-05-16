@@ -13,6 +13,7 @@ import { HomeSection } from "./sections/HomeSection";
 import { InventorySection } from "./sections/InventorySection";
 import { PurchasesSection } from "./sections/PurchasesSection";
 import { SalesSection } from "./sections/SalesSection";
+import { SettingsSection } from "./sections/SettingsSection";
 
 export default function App() {
   const finance = useFinanceData();
@@ -79,6 +80,7 @@ export default function App() {
     ),
     ingredientes: <IngredientControlPage />,
     eventos: <EventsSection />,
+    configuracion: <SettingsSection />,
   } as const;
 
   return (

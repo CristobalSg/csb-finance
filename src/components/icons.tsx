@@ -89,6 +89,19 @@ export function EventIcon() {
   );
 }
 
+export function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8.25a3.75 3.75 0 1 1 0 7.5 3.75 3.75 0 0 1 0-7.5Z" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M18.1 9.1 19.5 7l-2.5-2.5-2.1 1.4a7.2 7.2 0 0 0-1.7-.7L12.75 2h-3.5L8.8 5.2c-.6.18-1.18.42-1.7.7L5 4.5 2.5 7l1.4 2.1a7.2 7.2 0 0 0-.7 1.7L0 11.25v3.5l3.2.45c.18.6.42 1.18.7 1.7L2.5 19 5 21.5l2.1-1.4c.52.28 1.1.52 1.7.7l.45 3.2h3.5l.45-3.2c.6-.18 1.18-.42 1.7-.7l2.1 1.4 2.5-2.5-1.4-2.1c.28-.52.52-1.1.7-1.7l3.2-.45v-3.5l-3.2-.45a7.2 7.2 0 0 0-.7-1.7Z"
+      />
+    </svg>
+  );
+}
+
 export function DotsIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">

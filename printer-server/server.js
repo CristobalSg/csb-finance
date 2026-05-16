@@ -6,7 +6,7 @@ import { writeFile, unlink } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
 const escpos = require("escpos");
@@ -68,11 +68,15 @@ escpos.Network = require("escpos-network");
 const app = express();
 const port = Number(process.env.PRINTER_SERVER_PORT || 3001);
 const host = process.env.PRINTER_SERVER_HOST || "127.0.0.1";
+const publicAssetsPath = resolve(__dirname, "../public");
 const receiptLogoPath = process.env.RECEIPT_LOGO_PATH || resolve(__dirname, "../public/receipt-logo-thermal.png");
 const printerLineSpacing = Number(process.env.PRINTER_LINE_SPACING || 24);
-const printerCutFeedLines = Number(process.env.PRINTER_CUT_FEED_LINES || 1);
+const printerCutFeedLines = Number(process.env.PRINTER_CUT_FEED_LINES || 4);
 const printerEventCutFeedLines = Number(process.env.PRINTER_EVENT_CUT_FEED_LINES || 4);
+const receiptLogoWidth80mm = Number(process.env.RECEIPT_LOGO_WIDTH_80MM || 384);
+const receiptLogoWidth56mm = Number(process.env.RECEIPT_LOGO_WIDTH_56MM || 256);
 let receiptLogoPromise;
+const receiptLogoPromises = new Map();
 let receiptLogoLogged = false;
 
 app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
@@ -80,25 +84,54 @@ app.use(express.json({ limit: "1mb" }));
 
 const getColumns = (paperSize) => (paperSize === "56mm" ? 32 : 48);
 
-const loadReceiptLogo = () => {
-  if (process.env.PRINT_RECEIPT_LOGO === "false" || !existsSync(receiptLogoPath)) {
+const getReceiptLogoWidth = (paperSize) => {
+  const configuredWidth = paperSize === "56mm" ? receiptLogoWidth56mm : receiptLogoWidth80mm;
+  return Number.isFinite(configuredWidth) && configuredWidth > 0 ? Math.floor(configuredWidth) : undefined;
+};
+
+const getReceiptLogoPath = (logoPath) => {
+  if (!logoPath) {
+    return receiptLogoPath;
+  }
+
+  const resolvedLogoPath = resolve(publicAssetsPath, logoPath.replace(/^\/+/, ""));
+
+  const relativeLogoPath = relative(publicAssetsPath, resolvedLogoPath);
+
+  if (relativeLogoPath.startsWith("..") || relativeLogoPath === "" || isAbsolute(relativeLogoPath)) {
+    return receiptLogoPath;
+  }
+
+  return resolvedLogoPath;
+};
+
+const loadReceiptLogo = (logoPath) => {
+  const resolvedLogoPath = getReceiptLogoPath(logoPath);
+
+  if (process.env.PRINT_RECEIPT_LOGO === "false" || !existsSync(resolvedLogoPath)) {
     if (!receiptLogoLogged) {
-      console.warn(`Logo de boleta desactivado o no encontrado: ${receiptLogoPath}`);
+      console.warn(`Logo de boleta desactivado o no encontrado: ${resolvedLogoPath}`);
       receiptLogoLogged = true;
     }
 
     return Promise.resolve(null);
   }
 
-  receiptLogoPromise ??= new Promise((resolveImage, reject) => {
-    escpos.Image.load(receiptLogoPath, (image) => {
+  receiptLogoPromise = receiptLogoPromises.get(resolvedLogoPath);
+
+  if (receiptLogoPromise) {
+    return receiptLogoPromise;
+  }
+
+  receiptLogoPromise = new Promise((resolveImage, reject) => {
+    escpos.Image.load(resolvedLogoPath, (image) => {
       if (image instanceof Error) {
         reject(image);
         return;
       }
 
       if (image && !receiptLogoLogged) {
-        console.log(`Logo de boleta cargado: ${receiptLogoPath} (${image.size.width}x${image.size.height})`);
+        console.log(`Logo de boleta cargado: ${resolvedLogoPath} (${image.size.width}x${image.size.height})`);
         receiptLogoLogged = true;
       }
 
@@ -108,8 +141,36 @@ const loadReceiptLogo = () => {
     console.warn(`No se pudo cargar el logo de boleta: ${error.message}`);
     return null;
   });
+  receiptLogoPromises.set(resolvedLogoPath, receiptLogoPromise);
 
   return receiptLogoPromise;
+};
+
+const resizeReceiptLogo = (logo, maxWidth) => {
+  if (!logo || !maxWidth || logo.size.width <= maxWidth) {
+    return logo;
+  }
+
+  const width = maxWidth;
+  const height = Math.max(1, Math.round((logo.size.height * width) / logo.size.width));
+  const data = new Array(width * height);
+
+  for (let y = 0; y < height; y += 1) {
+    const sourceY = Math.min(logo.size.height - 1, Math.floor((y * logo.size.height) / height));
+
+    for (let x = 0; x < width; x += 1) {
+      const sourceX = Math.min(logo.size.width - 1, Math.floor((x * logo.size.width) / width));
+      data[y * width + x] = logo.data[sourceY * logo.size.width + sourceX];
+    }
+  }
+
+  const resizedLogo = Object.create(Object.getPrototypeOf(logo));
+  resizedLogo.data = data;
+  resizedLogo.pixels = {
+    shape: [width, height, logo.size.colors],
+  };
+
+  return resizedLogo;
 };
 
 class WindowsSpoolDevice {
@@ -380,22 +441,23 @@ const printComanda = (printer, section, columns) => {
   }
 };
 
-const printReceiptLogo = async (printer) => {
-  const logo = await loadReceiptLogo();
+const printReceiptLogo = async (printer, paperSize, logoPath) => {
+  const logo = await loadReceiptLogo(logoPath);
 
   if (!logo) {
     return;
   }
 
+  const printableLogo = resizeReceiptLogo(logo, getReceiptLogoWidth(paperSize));
   printer.align("ct");
-  await printer.image(logo, "d24");
+  await printer.image(printableLogo, "d24");
   printer.align("lt");
   setTicketLineSpacing(printer);
   printer.feed(1);
 };
 
-const printBoleta = async (printer, section, columns) => {
-  await printReceiptLogo(printer);
+const printBoleta = async (printer, section, columns, paperSize, logoPath) => {
+  await printReceiptLogo(printer, paperSize, logoPath);
   writeCentered(printer, section.businessName || "Ceese Burger's", columns, true);
   writeCentered(printer, section.title || "Boleta", columns);
   writeCentered(printer, section.date || new Date().toLocaleString("es-CL"), columns);
@@ -450,8 +512,8 @@ const printDailyReport = (printer, section, columns) => {
   }
 };
 
-const printEventTicket = async (printer, section, columns) => {
-  await printReceiptLogo(printer);
+const printEventTicket = async (printer, section, columns, paperSize, logoPath) => {
+  await printReceiptLogo(printer, paperSize, logoPath);
   setTicketLineSpacing(printer, section.lineSpacing);
   writeCentered(printer, "Ceeseburger's Labranza", columns);
   writeSeparator(printer, columns);
@@ -532,13 +594,13 @@ const printEscpos = async (job) => {
     if (section.type === "comanda") {
       printComanda(printer, section, columns);
     } else if (section.type === "boleta") {
-      await printBoleta(printer, section, columns);
+      await printBoleta(printer, section, columns, job.paperSize, job.logoPath);
     } else if (section.type === "gracias") {
       printThanks(printer, section, columns);
     } else if (section.type === "cierre-diario") {
       printDailyReport(printer, section, columns);
     } else if (section.type === "evento") {
-      await printEventTicket(printer, section, columns);
+      await printEventTicket(printer, section, columns, job.paperSize, job.logoPath);
     }
 
     const configuredCutFeedLines = section.type === "evento" ? printerEventCutFeedLines : printerCutFeedLines;

@@ -69,6 +69,7 @@ export type TicketSection =
 export type TicketPrintJob = {
   businessName: string;
   paperSize: ReceiptPaperSize;
+  logoPath?: string;
   sections: TicketSection[];
 };
 
@@ -118,6 +119,12 @@ export type EventTicketInput = {
   removedIngredients: string[];
   message?: string;
   lineSpacing?: number;
+};
+
+export type TestTicketInput = {
+  businessName?: string;
+  paperSize: ReceiptPaperSize;
+  logoPath?: string;
 };
 
 const defaultBusinessName = "Ceese Burger's";
@@ -317,6 +324,44 @@ export const buildEventTicketData = (eventTicket: EventTicketInput): TicketPrint
         removedIngredients: eventTicket.removedIngredients,
         message: eventTicket.message ?? `Feliz Día del Estudiante ${studentName}, 8° E, Instituto Claret`,
         lineSpacing: eventTicket.lineSpacing,
+      },
+    ],
+  };
+};
+
+export const buildTestTicketData = (testTicket: TestTicketInput): TicketPrintJob => {
+  const businessName = testTicket.businessName ?? defaultBusinessName;
+
+  return {
+    businessName,
+    paperSize: testTicket.paperSize,
+    logoPath: testTicket.logoPath,
+    sections: [
+      {
+        type: "boleta",
+        title: "Boleta de prueba",
+        businessName,
+        date: new Date().toLocaleString("es-CL"),
+        meta: ["Cliente: Prueba de impresion", `Papel: ${testTicket.paperSize}`, "Logo: horizontal"],
+        items: [
+          {
+            name: "Hamburguesa test",
+            qty: 1,
+            price: 5990,
+            notes: ["Nota: sin cambios de ingredientes"],
+          },
+          {
+            name: "Papas test",
+            qty: 1,
+            price: 1990,
+          },
+        ],
+        totals: [{ label: "Subtotal", value: 7980 }],
+        total: 7980,
+      },
+      {
+        type: "gracias",
+        lines: ["Prueba de margen", "Ceese Burger's"],
       },
     ],
   };

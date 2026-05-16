@@ -17,6 +17,7 @@ RUN pnpm install --frozen-lockfile --prod
 
 COPY printer-server/server.js ./
 COPY public/receipt-logo-thermal.png /public/receipt-logo-thermal.png
+COPY public/Logo_ceese_horizontal_png.png /public/Logo_ceese_horizontal_png.png
 
 ENV RECEIPT_LOGO_PATH="/public/receipt-logo-thermal.png"
 
