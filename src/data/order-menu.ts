@@ -35,6 +35,7 @@ export const familyComboDescriptions: Record<string, string> = {
   "Trio Familiar": "1 bacon + 2 clasicas",
   "Trio Premium": "2 bacon + 1 clasica",
   "Trio Premium Smoke": "3 smoke normales",
+  "2 Cs-Romp I Chica + 2 Cs-Smoke Criminal": "2 Cs-Romp I Chica + 2 Cs-Smoke Criminal",
   "Combo Familiar": "3 clasicas + 2 bacon",
   "Full Bacon": "5 bacon",
   "Full Clasicas": "5 clasicas",
@@ -43,6 +44,7 @@ export const familyComboDescriptions: Record<string, string> = {
 
 const clasicaRemovableIngredients = ["Tomate", "Lechuga", "Aderezo", "Queso cheddar"];
 const baconRemovableIngredients = ["Tocino", "Salsa BBQ", "Cebolla caramelizada", "Queso cheddar"];
+const rompIChicaRemovableIngredients = ["Tocino", "Lechuga", "Tomate", "Cebolla morada", "Salsa", "Queso cheddar"];
 const smokeRemovableIngredients = ["Cebolla crispy", "Tocino", "Carne", "Queso cheddar", "Salsa BBQ", "Mayonesa"];
 const smokeXlRemovableIngredients = [
   "Cebolla crispy",
@@ -70,6 +72,10 @@ export const familyComboBurgers: Record<string, FamilyComboBurger[]> = {
     ...createFamilyBurgers("Clasica", 1, clasicaRemovableIngredients),
   ],
   "Trio Premium Smoke": createFamilyBurgers("Smoke", 3, smokeRemovableIngredients),
+  "2 Cs-Romp I Chica + 2 Cs-Smoke Criminal": [
+    ...createFamilyBurgers("Cs-Romp I Chica", 2, rompIChicaRemovableIngredients),
+    ...createFamilyBurgers("Cs-Smoke Criminal", 2, smokeRemovableIngredients),
+  ],
   "Combo Familiar": [
     ...createFamilyBurgers("Clasica", 3, clasicaRemovableIngredients),
     ...createFamilyBurgers("Bacon", 2, baconRemovableIngredients),
@@ -94,6 +100,7 @@ export const orderMenuItems: OrderMenuItem[] = [
   { name: "Trio Familiar", price: 5990, category: "offers" },
   { name: "Trio Premium", price: 6390, category: "offers" },
   { name: "Trio Premium Smoke", price: 6690, category: "offers" },
+  { name: "2 Cs-Romp I Chica + 2 Cs-Smoke Criminal", price: 9490, category: "offers" },
   {
     name: "Combo Clasico",
     price: 4490,
@@ -215,6 +222,12 @@ export const orderMenuItems: OrderMenuItem[] = [
     price: 3190,
     category: "burgers",
     removableIngredients: ["Tocino", "Lechuga", "Tomate", "Cebolla morada", "Salsa", "Queso cheddar"],
+  },
+  {
+    name: "Cs-Rompedieta I Chica",
+    price: 2690,
+    category: "burgers",
+    removableIngredients: rompIChicaRemovableIngredients,
   },
   { name: "Papitas fritas", price: 1300, category: "sides" },
   { name: "Bebida", price: 1000, category: "sides", drinkOptions: comboDrinkOptions },
