@@ -1,5 +1,6 @@
 import { familyComboDescriptions } from "../data/order-menu";
-import type { DeliveryType, SaleOrderItem } from "../types";
+import { deliveryPaymentMethodLabels } from "../constants/app";
+import type { DeliveryPaymentMethod, DeliveryType, SaleOrderItem } from "../types";
 
 export type ReceiptPaperSize = "80mm" | "56mm";
 
@@ -43,6 +44,7 @@ export type TicketSection =
   | {
       type: "gracias";
       lines: string[];
+      imagePath?: string;
     }
   | {
       type: "cierre-diario";
@@ -84,6 +86,7 @@ export type TicketOrderInput = {
   deliveryType?: DeliveryType;
   deliveryAddress?: string;
   deliveryFee?: number;
+  deliveryPaymentMethod?: DeliveryPaymentMethod;
   discountAmount?: number;
   fulfillmentTime?: string;
   items: SaleOrderItem[];
@@ -94,6 +97,7 @@ export type TicketOrderInput = {
 export type DailyReportTicketInput = {
   businessName?: string;
   paperSize: ReceiptPaperSize;
+  title?: string;
   dateRange: string;
   salesCount: number;
   cashTotal: number;
@@ -102,12 +106,17 @@ export type DailyReportTicketInput = {
   deliveryTotal: number;
   totalCollected: number;
   totalSales: number;
-  sales: {
+  sales?: {
     time: string;
     client: string;
     total: number;
     status: string;
     deliveryFee?: number;
+  }[];
+  productStats?: {
+    name: string;
+    quantity: number;
+    total: number;
   }[];
 };
 
@@ -125,6 +134,12 @@ export type TestTicketInput = {
   businessName?: string;
   paperSize: ReceiptPaperSize;
   logoPath?: string;
+};
+
+export type ThanksTestTicketInput = {
+  businessName?: string;
+  paperSize: ReceiptPaperSize;
+  imagePath: string;
 };
 
 const defaultBusinessName = "Ceese Burger's";
@@ -217,6 +232,9 @@ export const buildTicketData = (order: TicketOrderInput): TicketPrintJob => {
     `Entrega: ${deliveryType === "delivery" ? "Delivery" : "Retiro"}`,
     deliveryType === "delivery" && order.deliveryAddress?.trim() ? `Direccion: ${order.deliveryAddress.trim()}` : "",
     deliveryType === "delivery" ? `Valor delivery: ${formatTicketCurrency(deliveryFee)}` : "",
+    deliveryType === "delivery" && order.deliveryPaymentMethod
+      ? `Pago delivery: ${deliveryPaymentMethodLabels[order.deliveryPaymentMethod]}`
+      : "",
     order.detail?.trim() ? `Detalle: ${order.detail.trim()}` : "",
   ].filter(Boolean);
   const sections: TicketSection[] = [];
@@ -231,6 +249,9 @@ export const buildTicketData = (order: TicketOrderInput): TicketPrintJob => {
         order.client?.trim() ? `Pedido: ${order.client.trim()}` : "",
         `Entrega: ${deliveryType === "delivery" ? "Delivery" : "Retiro"}`,
         deliveryType === "delivery" && order.deliveryAddress?.trim() ? `Direccion: ${order.deliveryAddress.trim()}` : "",
+        deliveryType === "delivery" && order.deliveryPaymentMethod
+          ? `Pago delivery: ${deliveryPaymentMethodLabels[order.deliveryPaymentMethod]}`
+          : "",
         order.detail?.trim() ? `Nota: ${order.detail.trim()}` : "",
       ].filter(Boolean),
       items: getKitchenGroups(order.items),
@@ -264,6 +285,7 @@ export const buildTicketData = (order: TicketOrderInput): TicketPrintJob => {
     sections.push({
       type: "gracias",
       lines: ["Muchas gracias", "Que las disfrute", businessName],
+      imagePath: "ceeseburgito.jpeg",
     });
   }
 
@@ -283,7 +305,7 @@ export const buildDailyReportTicketData = (report: DailyReportTicketInput): Tick
     sections: [
       {
         type: "cierre-diario",
-        title: "Cierre diario",
+        title: report.title ?? "Cierre diario",
         businessName,
         dateRange: report.dateRange,
         summary: [
@@ -295,12 +317,18 @@ export const buildDailyReportTicketData = (report: DailyReportTicketInput): Tick
         ],
         totalCollected: report.totalCollected,
         totalSales: report.totalSales,
-        sales: report.sales.map((sale) => ({
-          name: `${sale.time} - ${sale.client || "Sin cliente"}`,
-          qty: 1,
-          price: sale.total,
-          notes: [sale.status, sale.deliveryFee ? `Delivery ${formatTicketCurrency(sale.deliveryFee)}` : ""].filter(Boolean),
-        })),
+        sales:
+          report.productStats?.map((product) => ({
+            name: product.name,
+            qty: product.quantity,
+            price: product.total,
+          })) ??
+          (report.sales ?? []).map((sale) => ({
+            name: `${sale.time} - ${sale.client || "Sin cliente"}`,
+            qty: 1,
+            price: sale.total,
+            notes: [sale.status, sale.deliveryFee ? `Delivery ${formatTicketCurrency(sale.deliveryFee)}` : ""].filter(Boolean),
+          })),
       },
     ],
   };
@@ -362,6 +390,22 @@ export const buildTestTicketData = (testTicket: TestTicketInput): TicketPrintJob
       {
         type: "gracias",
         lines: ["Prueba de margen", "Ceese Burger's"],
+      },
+    ],
+  };
+};
+
+export const buildThanksTestTicketData = (testTicket: ThanksTestTicketInput): TicketPrintJob => {
+  const businessName = testTicket.businessName ?? defaultBusinessName;
+
+  return {
+    businessName,
+    paperSize: testTicket.paperSize,
+    sections: [
+      {
+        type: "gracias",
+        imagePath: testTicket.imagePath,
+        lines: ["Muchas gracias", "Que las disfrute", businessName],
       },
     ],
   };

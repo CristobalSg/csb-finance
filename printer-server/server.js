@@ -6,7 +6,7 @@ import { writeFile, unlink } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
 const escpos = require("escpos");
@@ -75,6 +75,10 @@ const printerCutFeedLines = Number(process.env.PRINTER_CUT_FEED_LINES || 4);
 const printerEventCutFeedLines = Number(process.env.PRINTER_EVENT_CUT_FEED_LINES || 4);
 const receiptLogoWidth80mm = Number(process.env.RECEIPT_LOGO_WIDTH_80MM || 384);
 const receiptLogoWidth56mm = Number(process.env.RECEIPT_LOGO_WIDTH_56MM || 256);
+const horizontalReceiptLogoWidth56mm = Number(process.env.HORIZONTAL_RECEIPT_LOGO_WIDTH_56MM || 300);
+const horizontalReceiptLogoPaperDots56mm = Number(process.env.HORIZONTAL_RECEIPT_LOGO_PAPER_DOTS_56MM || 300);
+const thanksImageWidth80mm = Number(process.env.THANKS_IMAGE_WIDTH_80MM || 360);
+const thanksImageWidth56mm = Number(process.env.THANKS_IMAGE_WIDTH_56MM || 260);
 const receiptPaperDots80mm = Number(process.env.RECEIPT_PAPER_DOTS_80MM || 576);
 const receiptPaperDots56mm = Number(process.env.RECEIPT_PAPER_DOTS_56MM || 384);
 const receiptLogoBottomFeedLines = Number(process.env.RECEIPT_LOGO_BOTTOM_FEED_LINES || 0);
@@ -94,6 +98,33 @@ const getReceiptLogoWidth = (paperSize) => {
 
 const getReceiptPaperDots = (paperSize) => {
   const configuredWidth = paperSize === "56mm" ? receiptPaperDots56mm : receiptPaperDots80mm;
+  return Number.isFinite(configuredWidth) && configuredWidth > 0 ? Math.floor(configuredWidth) : undefined;
+};
+
+const isHorizontalReceiptLogo = (logoPath) => basename(String(logoPath || "")).toLowerCase() === "logo_ceese_horizontal_png.png";
+
+const getPrintableLogoWidth = (paperSize, logoPath) => {
+  if (paperSize === "56mm" && isHorizontalReceiptLogo(logoPath)) {
+    return Number.isFinite(horizontalReceiptLogoWidth56mm) && horizontalReceiptLogoWidth56mm > 0
+      ? Math.floor(horizontalReceiptLogoWidth56mm)
+      : getReceiptLogoWidth(paperSize);
+  }
+
+  return getReceiptLogoWidth(paperSize);
+};
+
+const getPrintableLogoCanvasWidth = (paperSize, logoPath) => {
+  if (paperSize === "56mm" && isHorizontalReceiptLogo(logoPath)) {
+    return Number.isFinite(horizontalReceiptLogoPaperDots56mm) && horizontalReceiptLogoPaperDots56mm > 0
+      ? Math.floor(horizontalReceiptLogoPaperDots56mm)
+      : getReceiptPaperDots(paperSize);
+  }
+
+  return getReceiptPaperDots(paperSize);
+};
+
+const getThanksImageWidth = (paperSize) => {
+  const configuredWidth = paperSize === "56mm" ? thanksImageWidth56mm : thanksImageWidth80mm;
   return Number.isFinite(configuredWidth) && configuredWidth > 0 ? Math.floor(configuredWidth) : undefined;
 };
 
@@ -485,12 +516,17 @@ const printReceiptLogo = async (printer, paperSize, logoPath) => {
     return;
   }
 
-  const resizedLogo = resizeReceiptLogo(logo, getReceiptLogoWidth(paperSize));
-  const printableLogo = centerReceiptLogo(resizedLogo, getReceiptPaperDots(paperSize));
+  const shouldAddHorizontalLogoSpacing = isHorizontalReceiptLogo(logoPath);
+  const resizedLogo = resizeReceiptLogo(logo, getPrintableLogoWidth(paperSize, logoPath));
+  const printableLogo = centerReceiptLogo(resizedLogo, getPrintableLogoCanvasWidth(paperSize, logoPath));
   printer.align("ct");
   await printer.image(printableLogo, "d24");
   printer.align("lt");
   setTicketLineSpacing(printer);
+
+  if (shouldAddHorizontalLogoSpacing) {
+    printer.feed(1);
+  }
 
   if (Number.isFinite(receiptLogoBottomFeedLines) && receiptLogoBottomFeedLines > 0) {
     printer.feed(receiptLogoBottomFeedLines);
@@ -524,7 +560,28 @@ const printBoleta = async (printer, section, columns, paperSize, logoPath) => {
   writeLine(printer);
 };
 
-const printThanks = (printer, section, columns) => {
+const printThanksImage = async (printer, section, paperSize) => {
+  if (!section.imagePath) {
+    return;
+  }
+
+  const image = await loadReceiptLogo(section.imagePath);
+  if (!image) {
+    return;
+  }
+
+  const resizedImage = resizeReceiptLogo(image, getThanksImageWidth(paperSize));
+  const printableImage = centerReceiptLogo(resizedImage, getReceiptPaperDots(paperSize));
+  printer.align("ct");
+  await printer.image(printableImage, "d24");
+  printer.align("lt");
+  setTicketLineSpacing(printer);
+  printer.feed(1);
+};
+
+const printThanks = async (printer, section, columns, paperSize) => {
+  await printThanksImage(printer, section, paperSize);
+
   for (const line of section.lines || ["Muchas gracias"]) {
     writeCentered(printer, line, columns, true);
   }
@@ -638,7 +695,7 @@ const printEscpos = async (job) => {
     } else if (section.type === "boleta") {
       await printBoleta(printer, section, columns, job.paperSize, job.logoPath);
     } else if (section.type === "gracias") {
-      printThanks(printer, section, columns);
+      await printThanks(printer, section, columns, job.paperSize);
     } else if (section.type === "cierre-diario") {
       printDailyReport(printer, section, columns);
     } else if (section.type === "evento") {

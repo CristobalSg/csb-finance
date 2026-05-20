@@ -19,6 +19,25 @@ export function DashboardSection({
     cashIncome: number;
     transferIncome: number;
     pendingIncome: number;
+    allTimeIncome: number;
+    allTimeCollectedIncome: number;
+    allTimePendingIncome: number;
+    allTimeExpenses: number;
+    allTimeBusinessPurchases: number;
+    allTimeOperatingExpenses: number;
+    allTimeInitialInvestment: number;
+    allTimeUtility: number;
+    allTimeSimpleProfit: number;
+    allTimeSalesCount: number;
+    allTimeMovementsCount: number;
+    cashExpenses: number;
+    debitExpenses: number;
+    availableCash: number;
+    availableDebit: number;
+    availableTotal: number;
+    initialCashBalance: number;
+    initialDebitBalance: number;
+    controlStartDate: string;
     salesCount: number;
     expenses: number;
     purchasesCount: number;
@@ -102,41 +121,47 @@ export function DashboardSection({
         <StatCard
           label="Ingresos totales"
           value={formatCurrency(totals.income)}
-          hint={`Ventas registradas: ${formatNumber(totals.salesCount)} · Cobrado: ${formatCurrency(totals.collectedIncome)} · Pendiente: ${formatCurrency(totals.pendingIncome)}`}
+          hint={`Desde ${totals.controlStartDate} · Efectivo: ${formatCurrency(totals.cashIncome)} · Debito: ${formatCurrency(totals.transferIncome)} · Pendiente: ${formatCurrency(totals.pendingIncome)}`}
           accent="bg-gradient-to-r from-fuchsia-500 to-rose-400"
         />
         <StatCard
           label="Egresos totales"
           value={formatCurrency(totals.expenses)}
-          hint={`Registros: ${formatNumber(totals.purchasesCount)} · Inversion inicial: ${formatCurrency(totals.initialInvestment)}`}
+          hint={`Efectivo: ${formatCurrency(totals.cashExpenses)} · Debito: ${formatCurrency(totals.debitExpenses)} · Registros: ${formatNumber(totals.purchasesCount)}`}
           accent="bg-gradient-to-r from-rose-300 to-rose-500"
         />
         <StatCard
           label="Inversion inicial"
           value={formatCurrency(totals.initialInvestment)}
-          hint={`Registros de inversion: ${formatNumber(totals.investmentCount)} · Inventario valorizado: ${formatCurrency(totals.inventoryValue)}`}
+          hint={`Solo inversion · Registros: ${formatNumber(totals.investmentCount)} · No descuenta del disponible`}
           accent="bg-gradient-to-r from-amber-300 to-rose-400"
         />
         <StatCard
-          label="Gasto operativo"
-          value={formatCurrency(totals.operatingExpenses)}
-          hint={`Gastos: ${formatNumber(totals.expenseCount)} · Egresos totales menos inversion inicial`}
+          label="Disponible efectivo"
+          value={formatCurrency(totals.availableCash)}
+          hint={`Inicial: ${formatCurrency(totals.initialCashBalance)} · Ingresos: ${formatCurrency(totals.cashIncome)} · Egresos: ${formatCurrency(totals.cashExpenses)}`}
           accent="bg-gradient-to-r from-pink-300 to-rose-500"
         />
         <StatCard
-          label="Dinero real disponible"
-          value={formatCurrency(totals.net)}
-          hint="Formula: ventas cobradas - gasto operativo."
+          label="Disponible debito"
+          value={formatCurrency(totals.availableDebit)}
+          hint={`Inicial: ${formatCurrency(totals.initialDebitBalance)} · Ingresos: ${formatCurrency(totals.transferIncome)} · Egresos: ${formatCurrency(totals.debitExpenses)}`}
           accent="bg-gradient-to-r from-pink-400 to-fuchsia-600"
         />
       </div>
 
       <div data-print-grid="metrics-secondary" className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <StatCard
+          label="Dinero real disponible"
+          value={formatCurrency(totals.availableTotal)}
+          hint="Efectivo disponible + debito disponible."
+          accent="bg-gradient-to-r from-emerald-400 to-teal-500"
+        />
+        <StatCard
           label="Utilidad total"
           value={formatCurrency(totals.utilityTotal)}
-          hint="Ventas totales menos gasto operativo."
-          accent="bg-gradient-to-r from-emerald-400 to-teal-500"
+          hint="Ingresos totales menos egresos, sin contar inversion."
+          accent="bg-gradient-to-r from-lime-400 to-emerald-500"
         />
         <StatCard
           label="Rentabilidad"
@@ -150,13 +175,87 @@ export function DashboardSection({
           hint="Utilidad total dividida por gasto operativo."
           accent="bg-gradient-to-r from-orange-300 to-rose-400"
         />
-        <StatCard
-          label="ROI"
-          value={formatPercent(totals.roi)}
-          hint="Utilidad total dividida por inversion inicial."
-          accent="bg-gradient-to-r from-violet-400 to-fuchsia-500"
-        />
       </div>
+
+      <section className="rounded-[1.5rem] border border-rose-100 bg-white/75 p-5 shadow-sm">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-base font-black text-rose-950">Resumen general historico</h3>
+            <p className="text-sm text-rose-700/80">Vista completa de todo el tiempo. No usa la fecha de control de caja.</p>
+          </div>
+          <span className="rounded-full bg-rose-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">
+            Todo el tiempo
+          </span>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <StatCard
+            label="Ingresos historicos"
+            value={formatCurrency(totals.allTimeIncome)}
+            hint={`Ventas: ${formatNumber(totals.allTimeSalesCount)} · Cobrado: ${formatCurrency(totals.allTimeCollectedIncome)} · Pendiente: ${formatCurrency(totals.allTimePendingIncome)}`}
+            accent="bg-gradient-to-r from-fuchsia-500 to-rose-400"
+          />
+          <StatCard
+            label="Egresos historicos"
+            value={formatCurrency(totals.allTimeExpenses)}
+            hint={`Movimientos: ${formatNumber(totals.allTimeMovementsCount)} · Sin contar inversion`}
+            accent="bg-gradient-to-r from-rose-300 to-rose-500"
+          />
+          <StatCard
+            label="Inversion historica"
+            value={formatCurrency(totals.allTimeInitialInvestment)}
+            hint="Solo movimientos marcados como inversion."
+            accent="bg-gradient-to-r from-amber-300 to-rose-400"
+          />
+          <StatCard
+            label="Utilidad historica"
+            value={formatCurrency(totals.allTimeUtility)}
+            hint="Ingresos historicos menos egresos historicos."
+            accent="bg-gradient-to-r from-emerald-400 to-teal-500"
+          />
+          <StatCard
+            label="Ganancia simple"
+            value={formatCurrency(totals.allTimeSimpleProfit)}
+            hint={`Ventas cobradas - compras negocio (${formatCurrency(totals.allTimeBusinessPurchases)}) - gastos operativos (${formatCurrency(totals.allTimeOperatingExpenses)})`}
+            accent="bg-gradient-to-r from-lime-400 to-emerald-500"
+          />
+        </div>
+      </section>
+
+      <section className="rounded-[1.5rem] border border-rose-100 bg-white/75 p-5 shadow-sm">
+        <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h3 className="text-base font-black text-rose-950">Saldos iniciales</h3>
+            <p className="text-sm text-rose-700/80">Base usada para calcular el disponible real desde la fecha de control.</p>
+          </div>
+          <span className="rounded-full bg-rose-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">
+            Desde {totals.controlStartDate}
+          </span>
+        </div>
+        <div className="mt-4 overflow-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="text-xs uppercase tracking-[0.16em] text-rose-500">
+              <tr>
+                <th className="pb-3 pr-4 font-semibold">Campo</th>
+                <th className="pb-3 font-semibold">Valor</th>
+              </tr>
+            </thead>
+            <tbody className="text-rose-900">
+              <tr className="border-t border-rose-100">
+                <td className="py-3 pr-4 font-semibold">saldo_inicial_efectivo</td>
+                <td className="py-3">{formatCurrency(totals.initialCashBalance)}</td>
+              </tr>
+              <tr className="border-t border-rose-100">
+                <td className="py-3 pr-4 font-semibold">saldo_inicial_debito</td>
+                <td className="py-3">{formatCurrency(totals.initialDebitBalance)}</td>
+              </tr>
+              <tr className="border-t border-rose-100">
+                <td className="py-3 pr-4 font-semibold">fecha_inicio_control</td>
+                <td className="py-3">{totals.controlStartDate}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
 
       <div data-print-grid="analytics" className="min-h-0 flex-1 grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
         <ChartCard

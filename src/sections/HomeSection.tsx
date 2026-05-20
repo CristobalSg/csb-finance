@@ -1,18 +1,19 @@
-import { type CSSProperties, useMemo, useRef, useState } from "react";
+import { type CSSProperties, useMemo, useState } from "react";
 
-import { PrintIcon, XIcon } from "../components/icons";
-import { shellCardClass } from "../constants/app";
+import { ImageOffIcon, PrintIcon, XIcon } from "../components/icons";
+import { deliveryPaymentMethodLabels, shellCardClass } from "../constants/app";
 import {
   familyComboBurgers,
   familyComboDescriptions,
   orderMenuCategories,
   orderMenuItems,
+  type OrderMenuCategoryId,
   type OrderMenuItem,
 } from "../data/order-menu";
 import { formatCurrency } from "../lib/format";
 import { printTicket } from "../lib/thermal-printer";
 import { buildTicketData, type ReceiptPaperSize } from "../lib/thermal-ticket";
-import type { DeliveryType, SaleOrderItem } from "../types";
+import type { DeliveryPaymentMethod, DeliveryType, SaleOrderItem } from "../types";
 
 type CartItem = {
   id: string;
@@ -42,8 +43,10 @@ type CartItemFamilyBurger = {
 };
 
 export function HomeSection({
+  activeMenuCategory,
   onRegisterSale,
 }: {
+  activeMenuCategory: OrderMenuCategoryId;
   onRegisterSale: (sale: {
     client?: string;
     detail: string;
@@ -51,6 +54,7 @@ export function HomeSection({
     deliveryType: DeliveryType;
     deliveryAddress?: string;
     deliveryFee?: number;
+    deliveryPaymentMethod?: DeliveryPaymentMethod;
     discountAmount?: number;
     fulfillmentTime?: string;
     orderItems: SaleOrderItem[];
@@ -72,10 +76,14 @@ export function HomeSection({
   const [deliveryType, setDeliveryType] = useState<DeliveryType>("retiro");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [deliveryFee, setDeliveryFee] = useState("");
+  const [deliveryPaymentMethod, setDeliveryPaymentMethod] = useState<DeliveryPaymentMethod>("efectivo");
   const [fulfillmentTime, setFulfillmentTime] = useState("");
   const [orderName, setOrderName] = useState("");
   const [orderDetail, setOrderDetail] = useState("");
-  const categoryRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [productModalItem, setProductModalItem] = useState<OrderMenuItem | null>(null);
+  const [productModalQuantity, setProductModalQuantity] = useState(1);
+  const [productModalCustomizations, setProductModalCustomizations] = useState<CartItemCustomization[]>([]);
+  const [productModalStep, setProductModalStep] = useState(0);
 
   const cartTotal = useMemo(
     () => cartItems.reduce((total, item) => total + item.price * item.quantity, 0),
@@ -92,10 +100,16 @@ export function HomeSection({
   const discountedCartTotal = Math.max(0, cartTotal - discountValue);
   const orderTotal = discountedCartTotal + deliveryFeeAmount;
   const receiptPreviewStyle = { "--receipt-width": receiptPaperSize } as CSSProperties;
-  const highlightedMenuCategoryIds = new Set(["burgers", "family-combos"]);
+  const activeCategory = orderMenuCategories.find((category) => category.id === activeMenuCategory) ?? orderMenuCategories[0];
+  const activeCategoryItems = orderMenuItems.filter((item) => item.category === activeCategory.id);
+  const productModalHasOptions = Boolean(productModalItem?.drinkOptions || productModalItem?.sauceOptions);
 
-  const scrollToCategory = (categoryId: string) => {
-    categoryRefs.current[categoryId]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const handleDeliveryTypeChange = (nextDeliveryType: DeliveryType) => {
+    setDeliveryType(nextDeliveryType);
+
+    if (nextDeliveryType === "delivery") {
+      setDeliveryFee((current) => current || "2500");
+    }
   };
 
   const createFamilyBurgerCustomization = (itemName: string) =>
@@ -119,14 +133,55 @@ export function HomeSection({
     };
   };
 
-  const addItem = (item: OrderMenuItem) => {
+  const createDirectCustomization = (): CartItemCustomization => ({
+    id: crypto.randomUUID(),
+    removedIngredients: [],
+  });
+
+  const cloneCustomization = (customization: CartItemCustomization): CartItemCustomization => ({
+    ...customization,
+    id: crypto.randomUUID(),
+    removedIngredients: [...customization.removedIngredients],
+    familyBurgers: customization.familyBurgers?.map((burger) => ({
+      ...burger,
+      id: crypto.randomUUID(),
+      removedIngredients: [...burger.removedIngredients],
+    })),
+  });
+
+  const openProductModal = (item: OrderMenuItem) => {
+    setProductModalItem(item);
+    setProductModalQuantity(1);
+    setProductModalCustomizations([createCustomization(item)]);
+    setProductModalStep(0);
+  };
+
+  const shouldAddDirectly = (item: OrderMenuItem) => item.category === "sides" || item.category === "sauces";
+
+  const handleProductClick = (item: OrderMenuItem) => {
+    if (shouldAddDirectly(item)) {
+      addItem(item, [createDirectCustomization()]);
+      return;
+    }
+
+    openProductModal(item);
+  };
+
+  const closeProductModal = () => {
+    setProductModalItem(null);
+    setProductModalQuantity(1);
+    setProductModalCustomizations([]);
+    setProductModalStep(0);
+  };
+
+  const addItem = (item: OrderMenuItem, customizations = [createCustomization(item)]) => {
     setCartItems((current) => [
       {
         id: crypto.randomUUID(),
         name: item.name,
         price: item.price,
-        quantity: 1,
-        customizations: [createCustomization(item)],
+        quantity: customizations.length,
+        customizations: customizations.map(cloneCustomization),
         drinkOptions: item.drinkOptions,
         sauceOptions: item.sauceOptions,
         removableIngredients: item.removableIngredients,
@@ -135,64 +190,97 @@ export function HomeSection({
     ]);
   };
 
-  const updateQuantity = (id: string, quantity: number) => {
-    setCartItems((current) =>
-      current
-        .map((item) => {
-          if (item.id !== id) {
-            return item;
-          }
+  const confirmProductModal = () => {
+    if (!productModalItem || productModalCustomizations.length === 0) {
+      return;
+    }
 
-          const customizations =
-            quantity > item.customizations.length
-              ? [
-                  ...item.customizations,
-                  ...Array.from({ length: quantity - item.customizations.length }, () => createCustomization(item)),
-                ]
-              : item.customizations.slice(0, quantity);
+    addItem(productModalItem, productModalCustomizations);
+    closeProductModal();
+  };
 
-          return { ...item, quantity, customizations };
-        })
-        .filter((item) => item.quantity > 0),
+  const goToNextProductModalStep = () => {
+    if (productModalStep === 0) {
+      setProductModalStep(productModalHasOptions ? 1 : 2);
+      return;
+    }
+
+    if (productModalStep === 1) {
+      setProductModalStep(2);
+    }
+  };
+
+  const goToPreviousProductModalStep = () => {
+    if (productModalStep === 2) {
+      setProductModalStep(productModalHasOptions ? 1 : 0);
+      return;
+    }
+
+    if (productModalStep === 1) {
+      setProductModalStep(0);
+    }
+  };
+
+  const updateProductModalQuantity = (nextQuantity: number) => {
+    if (!productModalItem) {
+      return;
+    }
+
+    const quantity = Math.max(1, nextQuantity);
+    setProductModalQuantity(quantity);
+    setProductModalCustomizations((current) =>
+      quantity > current.length
+        ? [...current, ...Array.from({ length: quantity - current.length }, () => createCustomization(productModalItem))]
+        : current.slice(0, quantity),
     );
   };
 
-  const updateCartItemCustomization = (itemId: string, customizationId: string, updates: Partial<CartItemCustomization>) => {
-    setCartItems((current) =>
-      current.map((item) =>
-        item.id === itemId
-          ? {
-              ...item,
-              customizations: item.customizations.map((customization) =>
-                customization.id === customizationId ? { ...customization, ...updates } : customization,
-              ),
-            }
-          : item,
-      ),
+  const updateProductModalCustomization = (customizationId: string, updates: Partial<CartItemCustomization>) => {
+    setProductModalCustomizations((current) =>
+      current.map((customization) => (customization.id === customizationId ? { ...customization, ...updates } : customization)),
     );
   };
 
-  const toggleRemovedIngredient = (itemId: string, customizationId: string, ingredient: string) => {
-    setCartItems((current) =>
-      current.map((item) => {
-        if (item.id !== itemId) {
-          return item;
+  const toggleProductModalRemovedIngredient = (customizationId: string, ingredient: string) => {
+    setProductModalCustomizations((current) =>
+      current.map((customization) => {
+        if (customization.id !== customizationId) {
+          return customization;
+        }
+
+        const shouldRemove = !customization.removedIngredients.includes(ingredient);
+
+        return {
+          ...customization,
+          removedIngredients: shouldRemove
+            ? [...customization.removedIngredients, ingredient]
+            : customization.removedIngredients.filter((currentIngredient) => currentIngredient !== ingredient),
+        };
+      }),
+    );
+  };
+
+  const toggleProductModalFamilyBurgerRemovedIngredient = (customizationId: string, burgerId: string, ingredient: string) => {
+    setProductModalCustomizations((current) =>
+      current.map((customization) => {
+        if (customization.id !== customizationId) {
+          return customization;
         }
 
         return {
-          ...item,
-          customizations: item.customizations.map((customization) => {
-            if (customization.id !== customizationId) {
-              return customization;
+          ...customization,
+          familyBurgers: customization.familyBurgers?.map((burger) => {
+            if (burger.id !== burgerId) {
+              return burger;
             }
 
-            const shouldRemove = !customization.removedIngredients.includes(ingredient);
+            const shouldRemove = !burger.removedIngredients.includes(ingredient);
 
             return {
-              ...customization,
+              ...burger,
               removedIngredients: shouldRemove
-                ? [...customization.removedIngredients, ingredient]
-                : customization.removedIngredients.filter((currentIngredient) => currentIngredient !== ingredient),
+                ? [...burger.removedIngredients, ingredient]
+                : burger.removedIngredients.filter((currentIngredient) => currentIngredient !== ingredient),
             };
           }),
         };
@@ -200,46 +288,8 @@ export function HomeSection({
     );
   };
 
-  const toggleFamilyBurgerRemovedIngredient = (
-    itemId: string,
-    customizationId: string,
-    burgerId: string,
-    ingredient: string,
-  ) => {
-    setCartItems((current) =>
-      current.map((item) => {
-        if (item.id !== itemId) {
-          return item;
-        }
-
-        return {
-          ...item,
-          customizations: item.customizations.map((customization) => {
-            if (customization.id !== customizationId) {
-              return customization;
-            }
-
-            return {
-              ...customization,
-              familyBurgers: customization.familyBurgers?.map((burger) => {
-                if (burger.id !== burgerId) {
-                  return burger;
-                }
-
-                const shouldRemove = !burger.removedIngredients.includes(ingredient);
-
-                return {
-                  ...burger,
-                  removedIngredients: shouldRemove
-                    ? [...burger.removedIngredients, ingredient]
-                    : burger.removedIngredients.filter((currentIngredient) => currentIngredient !== ingredient),
-                };
-              }),
-            };
-          }),
-        };
-      }),
-    );
+  const removeCartItem = (id: string) => {
+    setCartItems((current) => current.filter((item) => item.id !== id));
   };
 
   const getFamilyBurgerNotes = (customization: Pick<CartItemCustomization, "familyBurgers">) =>
@@ -516,6 +566,7 @@ export function HomeSection({
       {printSections.thanks ? (
         <div className={`receipt-paper ${preview ? "mx-auto lg:mx-0" : ""}`}>
           <div className="flex min-h-[48mm] flex-col items-center justify-center text-center">
+            <img src="/ceeseburgito.jpeg" alt="Ceeseburguito" className="receipt-thanks-image" />
             <p className="text-xl font-black uppercase leading-tight">Muchas gracias</p>
             <p className="mt-2 text-sm font-bold">Que las disfrute</p>
             <p className="mt-3 text-base font-black uppercase">Ceese Burger's</p>
@@ -554,6 +605,7 @@ export function HomeSection({
       deliveryType,
       deliveryAddress,
       deliveryFee: deliveryFeeAmount,
+      deliveryPaymentMethod: deliveryType === "delivery" ? deliveryPaymentMethod : undefined,
       discountAmount: discountValue,
       fulfillmentTime,
       orderItems: buildOrderItems(),
@@ -577,6 +629,7 @@ export function HomeSection({
           deliveryType,
           deliveryAddress,
           deliveryFee: deliveryFeeAmount,
+          deliveryPaymentMethod: deliveryType === "delivery" ? deliveryPaymentMethod : undefined,
           discountAmount: discountValue,
           fulfillmentTime,
           items: buildOrderItems(),
@@ -595,6 +648,7 @@ export function HomeSection({
       setDeliveryType("retiro");
       setDeliveryAddress("");
       setDeliveryFee("");
+      setDeliveryPaymentMethod("efectivo");
       setFulfillmentTime("");
       setOrderName("");
       setOrderDetail("");
@@ -611,62 +665,48 @@ export function HomeSection({
           <div className="flex flex-col gap-2 border-b border-rose-100 pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div>
               <p className="text-sm font-medium text-rose-500">Menu</p>
-              <h3 className="mt-1 text-xl font-bold text-rose-950">Productos disponibles</h3>
-              <div className="mt-3 flex max-w-full flex-wrap gap-2">
-                {orderMenuCategories.map((category) => (
+            </div>
+            <span className="rounded-full bg-rose-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-rose-500">
+              {activeCategoryItems.length} opciones
+            </span>
+          </div>
+
+          <div className="mt-5 min-h-0 flex-1 overflow-auto pr-1">
+            <div>
+              <h4 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-rose-500">{activeCategory.label}</h4>
+              <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
+                {activeCategoryItems.map((item) => (
                   <button
-                    key={category.id}
+                    key={item.name}
                     type="button"
-                    onClick={() => scrollToCategory(category.id)}
-                    className={`min-w-0 flex-1 rounded-full border px-3 py-1.5 text-xs font-black uppercase tracking-[0.12em] transition sm:flex-none ${
-                      highlightedMenuCategoryIds.has(category.id)
-                        ? "border-fuchsia-300 bg-fuchsia-600 text-white shadow-sm shadow-fuchsia-200 hover:bg-fuchsia-700"
-                        : "border-rose-200 bg-white text-rose-600 hover:border-fuchsia-300 hover:bg-fuchsia-50 hover:text-fuchsia-700"
-                    }`}
+                    onClick={() => handleProductClick(item)}
+                    className="flex min-h-28 flex-col overflow-hidden rounded-[1.35rem] border border-rose-100 bg-rose-50/60 text-left transition hover:border-fuchsia-200 hover:bg-white"
                   >
-                    {category.label}
+                    <span className="block aspect-square w-full overflow-hidden bg-white">
+                      {item.image ? (
+                        <img src={item.image} alt={item.name} className="h-full w-full object-cover" loading="lazy" />
+                      ) : (
+                        <span className="flex h-full w-full flex-col items-center justify-center gap-2 bg-rose-50 text-rose-400">
+                          <ImageOffIcon />
+                          <span className="text-xs font-bold uppercase tracking-[0.14em]">Sin imagen</span>
+                        </span>
+                      )}
+                    </span>
+                    <span className="flex flex-1 flex-col justify-between p-4">
+                      <span className="text-sm font-bold leading-5 text-rose-950">{item.name}</span>
+                      <span className="mt-4 text-lg font-black text-fuchsia-700">{formatCurrency(item.price)}</span>
+                    </span>
                   </button>
                 ))}
               </div>
             </div>
-            <span className="rounded-full bg-rose-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-rose-500">
-              {orderMenuItems.length} opciones
-            </span>
           </div>
-
-          <div className="mt-5 min-h-0 flex-1 space-y-6 overflow-auto pr-1">
-            {orderMenuCategories.map((category) => (
-              <div
-                key={category.id}
-                ref={(element) => {
-                  categoryRefs.current[category.id] = element;
-                }}
-              >
-                <h4 className="mb-3 text-sm font-black uppercase tracking-[0.18em] text-rose-500">{category.label}</h4>
-                <div className="grid gap-3 sm:grid-cols-2 2xl:grid-cols-3">
-                  {orderMenuItems
-                    .filter((item) => item.category === category.id)
-                    .map((item) => (
-                      <button
-                        key={item.name}
-                        type="button"
-                        onClick={() => addItem(item)}
-                        className="flex min-h-28 flex-col justify-between rounded-[1.35rem] border border-rose-100 bg-rose-50/60 p-4 text-left transition hover:border-fuchsia-200 hover:bg-white"
-                      >
-                        <span className="text-sm font-bold leading-5 text-rose-950">{item.name}</span>
-                        <span className="mt-4 text-lg font-black text-fuchsia-700">{formatCurrency(item.price)}</span>
-                      </button>
-                    ))}
-                </div>
-              </div>
-            ))}
-            <footer data-print-hidden className="rounded-[1.5rem] border border-white/70 bg-white/70 px-5 py-4 text-sm text-rose-700 shadow-[0_18px_50px_var(--app-shadow)] backdrop-blur">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="font-semibold text-rose-900">Finanzas Ceeseburgers C&K</p>
-                <p>Resumen local de compras, ventas e inventario guardado en este dispositivo.</p>
-              </div>
-            </footer>
-          </div>
+          <footer data-print-hidden className="mt-4 shrink-0 rounded-[1.5rem] border border-white/70 bg-white/70 px-5 py-4 text-sm text-rose-700 shadow-[0_18px_50px_var(--app-shadow)] backdrop-blur">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="font-semibold text-rose-900">Finanzas Ceeseburgers C&K</p>
+              <p>Resumen local de compras, ventas e inventario guardado en este dispositivo.</p>
+            </div>
+          </footer>
         </section>
 
         <aside className={`${shellCardClass} flex min-h-[26rem] flex-col overflow-hidden lg:h-full lg:min-h-0`}>
@@ -705,161 +745,44 @@ export function HomeSection({
             ) : (
               <div className="space-y-3">
                 {cartItems.map((item) => (
-                  <article key={item.id} className="rounded-[1.25rem] border border-rose-100 bg-white/70 p-4">
-                    <div className="flex items-start justify-between gap-3">
+                  <article key={item.id} className="group relative overflow-hidden rounded-[1.25rem] border border-rose-100 bg-white/70 p-4">
+                    <button
+                      type="button"
+                      onClick={() => removeCartItem(item.id)}
+                      className="absolute inset-y-0 right-0 z-10 flex w-16 items-center justify-center bg-gradient-to-l from-stone-950/85 via-stone-900/55 to-transparent text-white opacity-0 transition group-hover:opacity-100 focus:opacity-100"
+                      aria-label={`Eliminar ${item.name}`}
+                    >
+                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/15 shadow-sm">
+                        <XIcon />
+                      </span>
+                    </button>
+
+                    <div className="flex items-start justify-between gap-3 pr-14">
                       <div>
                         <p className="font-bold leading-5 text-rose-950">{item.name}</p>
                         <p className="mt-1 text-sm text-rose-500">{formatCurrency(item.price)} c/u</p>
+                        <p className="mt-1 text-xs font-semibold uppercase tracking-[0.14em] text-rose-400">
+                          {item.quantity} unidad{item.quantity === 1 ? "" : "es"}
+                        </p>
                       </div>
                       <p className="shrink-0 font-black text-fuchsia-700">{formatCurrency(item.price * item.quantity)}</p>
                     </div>
 
-                    <div className="mt-4 flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => updateQuantity(item.id, item.quantity - 1)}
-                        className="flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-white text-lg font-bold text-rose-700"
-                        aria-label={`Restar ${item.name}`}
-                      >
-                        -
-                      </button>
-                      <span className="flex h-9 min-w-10 items-center justify-center rounded-full bg-rose-50 px-3 text-sm font-bold text-rose-900">
-                        {item.quantity}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => updateQuantity(item.id, item.quantity + 1)}
-                        className="flex h-9 w-9 items-center justify-center rounded-full border border-rose-200 bg-white text-lg font-bold text-rose-700"
-                        aria-label={`Sumar ${item.name}`}
-                      >
-                        +
-                      </button>
-                    </div>
+                    <div className="mt-4 space-y-2 border-t border-rose-100 pt-3">
+                      {item.customizations.slice(0, 3).map((customization, index) => {
+                        const notes = getCustomizationNotes(customization);
 
-                    {item.drinkOptions || item.sauceOptions || item.removableIngredients || familyComboBurgers[item.name] ? (
-                      <div className="mt-4 space-y-3 border-t border-rose-100 pt-4">
-                        {item.customizations.map((customization, index) => (
-                          <div
-                            key={customization.id}
-                            className={item.quantity > 1 ? "rounded-[1rem] border border-rose-100 bg-rose-50/40 p-3" : ""}
-                          >
-                            {item.quantity > 1 ? (
-                              <p className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-rose-500">
-                                Unidad {index + 1}
-                              </p>
-                            ) : null}
-
-                            <div className="space-y-3">
-                              {item.drinkOptions ? (
-                                <label className="block">
-                                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Bebida</span>
-                                  <select
-                                    value={customization.drink}
-                                    onChange={(event) =>
-                                      updateCartItemCustomization(item.id, customization.id, { drink: event.target.value })
-                                    }
-                                    className="mt-2 w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
-                                  >
-                                    {item.drinkOptions.map((drink) => (
-                                      <option key={drink} value={drink}>
-                                        {drink}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                              ) : null}
-
-                              {item.sauceOptions ? (
-                                <label className="block">
-                                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Salsa</span>
-                                  <select
-                                    value={customization.sauce}
-                                    onChange={(event) =>
-                                      updateCartItemCustomization(item.id, customization.id, { sauce: event.target.value })
-                                    }
-                                    className="mt-2 w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
-                                  >
-                                    {item.sauceOptions.map((sauce) => (
-                                      <option key={sauce} value={sauce}>
-                                        {sauce}
-                                      </option>
-                                    ))}
-                                  </select>
-                                </label>
-                              ) : null}
-
-                              {item.removableIngredients ? (
-                                <div>
-                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Sin ingredientes</p>
-                                  <div className="mt-2 flex flex-wrap gap-2">
-                                    {item.removableIngredients.map((ingredient) => {
-                                      const isRemoved = customization.removedIngredients.includes(ingredient);
-
-                                      return (
-                                        <button
-                                          key={ingredient}
-                                          type="button"
-                                          onClick={() => toggleRemovedIngredient(item.id, customization.id, ingredient)}
-                                          className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                                            isRemoved
-                                              ? "border-red-200 bg-red-50 text-red-700"
-                                              : "border-rose-200 bg-white text-rose-600"
-                                          }`}
-                                        >
-                                          {ingredient}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ) : null}
-
-                              {customization.familyBurgers ? (
-                                <div className="space-y-3">
-                                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">
-                                    Sin por hamburguesa
-                                  </p>
-                                  {customization.familyBurgers.map((burger) => (
-                                    <div key={burger.id} className="rounded-[1rem] border border-rose-100 bg-white/70 p-3">
-                                      <p className="text-xs font-black uppercase tracking-[0.14em] text-rose-600">
-                                        {burger.label}
-                                      </p>
-                                      <div className="mt-2 flex flex-wrap gap-2">
-                                        {burger.removableIngredients.map((ingredient) => {
-                                          const isRemoved = burger.removedIngredients.includes(ingredient);
-
-                                          return (
-                                            <button
-                                              key={ingredient}
-                                              type="button"
-                                              onClick={() =>
-                                                toggleFamilyBurgerRemovedIngredient(
-                                                  item.id,
-                                                  customization.id,
-                                                  burger.id,
-                                                  ingredient,
-                                                )
-                                              }
-                                              className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                                                isRemoved
-                                                  ? "border-red-200 bg-red-50 text-red-700"
-                                                  : "border-rose-200 bg-white text-rose-600"
-                                              }`}
-                                            >
-                                              {ingredient}
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </div>
+                        return (
+                          <div key={customization.id} className="rounded-[1rem] bg-rose-50/60 px-3 py-2 text-xs font-semibold text-rose-700">
+                            <p className="font-black text-rose-900">Unidad {index + 1}</p>
+                            <p className="mt-1">{notes.length > 0 ? notes.join(" · ") : "Sin cambios"}</p>
                           </div>
-                        ))}
-                      </div>
-                    ) : null}
+                        );
+                      })}
+                      {item.customizations.length > 3 ? (
+                        <p className="text-xs font-semibold text-rose-500">+{item.customizations.length - 3} unidades mas</p>
+                      ) : null}
+                    </div>
                   </article>
                 ))}
               </div>
@@ -867,6 +790,219 @@ export function HomeSection({
           </div>
         </aside>
       </div>
+
+      {productModalItem && productModalCustomizations.length > 0 ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/55 px-4 py-8 backdrop-blur-sm">
+          <div className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-[2rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.28)]">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-rose-500">Configurar producto</p>
+                <h3 className="text-2xl font-black text-rose-950">{productModalItem.name}</h3>
+                <p className="mt-1 text-sm font-bold text-fuchsia-700">{formatCurrency(productModalItem.price)} c/u</p>
+              </div>
+              <button
+                type="button"
+                onClick={closeProductModal}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
+                aria-label="Cerrar configuracion de producto"
+              >
+                <XIcon />
+              </button>
+            </div>
+
+            <div className="mb-4 flex items-center justify-center gap-2">
+              {["Cantidad", "Opciones", "Quitar"].map((label, index) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => setProductModalStep(index)}
+                  className={`h-3 w-3 rounded-full transition ${
+                    productModalStep >= index ? "bg-fuchsia-600" : "bg-rose-100"
+                  }`}
+                  aria-label={label}
+                  title={label}
+                />
+              ))}
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-4 overflow-auto pr-1">
+              {productModalStep === 0 ? (
+                <div className="overflow-hidden rounded-[1.5rem] border border-rose-100 bg-rose-50">
+                <div className="aspect-square max-h-72 w-full bg-white">
+                  {productModalItem.image ? (
+                    <img src={productModalItem.image} alt={productModalItem.name} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-rose-400">
+                      <ImageOffIcon />
+                      <span className="text-xs font-bold uppercase tracking-[0.14em]">Sin imagen</span>
+                    </div>
+                  )}
+                </div>
+                </div>
+              ) : null}
+
+              {productModalStep === 0 ? (
+                <div className="rounded-[1.25rem] border border-rose-100 bg-white/80 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Cantidad</p>
+                <div className="mt-3 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => updateProductModalQuantity(productModalQuantity - 1)}
+                    className="flex h-10 w-10 items-center justify-center rounded-full border border-rose-200 bg-white text-lg font-bold text-rose-700"
+                    aria-label="Restar producto"
+                  >
+                    -
+                  </button>
+                  <span className="flex h-10 min-w-12 items-center justify-center rounded-full bg-rose-50 px-4 text-sm font-black text-rose-900">
+                    {productModalQuantity}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => updateProductModalQuantity(productModalQuantity + 1)}
+                    className="flex h-10 w-10 items-center justify-center rounded-full border border-rose-200 bg-white text-lg font-bold text-rose-700"
+                    aria-label="Sumar producto"
+                  >
+                    +
+                  </button>
+                </div>
+                </div>
+              ) : null}
+
+              {productModalStep === 1 ? (
+                <div className="space-y-3">
+                  {!productModalItem.drinkOptions && !productModalItem.sauceOptions ? (
+                    <div className="rounded-[1.25rem] border border-dashed border-rose-200 bg-rose-50/60 p-5 text-center text-sm font-semibold text-rose-700">
+                      Este producto no tiene bebida ni salsa para elegir.
+                    </div>
+                  ) : null}
+                  {productModalCustomizations.map((customization, index) => (
+                    <div key={customization.id} className="rounded-[1.25rem] border border-rose-100 bg-white/80 p-4">
+                      <p className="mb-3 text-xs font-black uppercase tracking-[0.16em] text-rose-500">Unidad {index + 1}</p>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {productModalItem.drinkOptions ? (
+                          <label className="block">
+                            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Bebida</span>
+                            <select
+                              value={customization.drink}
+                              onChange={(event) => updateProductModalCustomization(customization.id, { drink: event.target.value })}
+                              className="mt-2 w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                            >
+                              {productModalItem.drinkOptions.map((drink) => (
+                                <option key={drink} value={drink}>
+                                  {drink}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : null}
+                        {productModalItem.sauceOptions ? (
+                          <label className="block">
+                            <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Salsa</span>
+                            <select
+                              value={customization.sauce}
+                              onChange={(event) => updateProductModalCustomization(customization.id, { sauce: event.target.value })}
+                              className="mt-2 w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                            >
+                              {productModalItem.sauceOptions.map((sauce) => (
+                                <option key={sauce} value={sauce}>
+                                  {sauce}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+
+              {productModalStep === 2 ? (
+                <div className="space-y-3">
+                  {!productModalItem.removableIngredients && !productModalCustomizations.some((customization) => customization.familyBurgers) ? (
+                    <div className="rounded-[1.25rem] border border-dashed border-rose-200 bg-rose-50/60 p-5 text-center text-sm font-semibold text-rose-700">
+                      Este producto no tiene ingredientes configurables.
+                    </div>
+                  ) : null}
+                  {productModalCustomizations.map((customization, index) => (
+                    <div key={customization.id} className="space-y-3 rounded-[1.25rem] border border-rose-100 bg-white/80 p-4">
+                      <p className="text-xs font-black uppercase tracking-[0.16em] text-rose-500">Unidad {index + 1}</p>
+                      {productModalItem.removableIngredients ? (
+                        <div>
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Sin ingredientes</p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {productModalItem.removableIngredients.map((ingredient) => {
+                              const isRemoved = customization.removedIngredients.includes(ingredient);
+
+                              return (
+                                <button
+                                  key={ingredient}
+                                  type="button"
+                                  onClick={() => toggleProductModalRemovedIngredient(customization.id, ingredient)}
+                                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                                    isRemoved ? "border-red-200 bg-red-50 text-red-700" : "border-rose-200 bg-white text-rose-600"
+                                  }`}
+                                >
+                                  {ingredient}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      ) : null}
+                      {customization.familyBurgers ? (
+                        <div className="space-y-3">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Sin por hamburguesa</p>
+                          {customization.familyBurgers.map((burger) => (
+                    <div key={burger.id} className="rounded-[1rem] border border-rose-100 bg-rose-50/50 p-3">
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-rose-600">{burger.label}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {burger.removableIngredients.map((ingredient) => {
+                          const isRemoved = burger.removedIngredients.includes(ingredient);
+
+                          return (
+                            <button
+                              key={ingredient}
+                              type="button"
+                                      onClick={() => toggleProductModalFamilyBurgerRemovedIngredient(customization.id, burger.id, ingredient)}
+                              className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
+                                isRemoved ? "border-red-200 bg-red-50 text-red-700" : "border-rose-200 bg-white text-rose-600"
+                              }`}
+                            >
+                              {ingredient}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                        </div>
+                      ) : null}
+                </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+
+            <div className="mt-5 flex flex-col gap-2 border-t border-rose-100 pt-4 sm:flex-row">
+              <button
+                type="button"
+                onClick={productModalStep === 0 ? closeProductModal : goToPreviousProductModalStep}
+                className="inline-flex flex-1 items-center justify-center rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
+              >
+                {productModalStep === 0 ? "Cancelar" : "Atras"}
+              </button>
+              <button
+                type="button"
+                onClick={productModalStep === 2 ? confirmProductModal : goToNextProductModalStep}
+                className="inline-flex flex-1 items-center justify-center rounded-full bg-fuchsia-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-300/50 transition hover:bg-fuchsia-700"
+              >
+                {productModalStep === 2 ? `Agregar ${formatCurrency(productModalItem.price * productModalQuantity)}` : "Siguiente"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {isReceiptOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/55 px-4 py-8 backdrop-blur-sm">
@@ -937,7 +1073,7 @@ export function HomeSection({
                           <button
                             key={option.value}
                             type="button"
-                            onClick={() => setDeliveryType(option.value as DeliveryType)}
+                            onClick={() => handleDeliveryTypeChange(option.value as DeliveryType)}
                             className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
                               deliveryType === option.value ? "bg-fuchsia-600 text-white" : "text-rose-700"
                             }`}
@@ -950,27 +1086,47 @@ export function HomeSection({
                   </div>
 
                   {deliveryType === "delivery" ? (
-                    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-                      <label className="block space-y-2">
-                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Direccion delivery</span>
-                        <input
-                          value={deliveryAddress}
-                          onChange={(event) => setDeliveryAddress(event.target.value)}
-                          className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
-                          placeholder="Calle, numero, referencia"
-                        />
-                      </label>
+                    <div className="space-y-3">
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+                        <label className="block space-y-2">
+                          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Direccion delivery</span>
+                          <input
+                            value={deliveryAddress}
+                            onChange={(event) => setDeliveryAddress(event.target.value)}
+                            className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                            placeholder="Calle, numero, referencia"
+                          />
+                        </label>
 
-                      <label className="block space-y-2">
-                        <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Valor delivery</span>
-                        <input
-                          value={deliveryFee}
-                          onChange={(event) => setDeliveryFee(event.target.value.replace(/\D/g, ""))}
-                          inputMode="numeric"
-                          className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
-                          placeholder="0"
-                        />
-                      </label>
+                        <label className="block space-y-2">
+                          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Valor delivery</span>
+                          <input
+                            value={deliveryFee}
+                            onChange={(event) => setDeliveryFee(event.target.value.replace(/\D/g, ""))}
+                            inputMode="numeric"
+                            className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                            placeholder="0"
+                          />
+                        </label>
+                      </div>
+
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Pago delivery</p>
+                        <div className="mt-2 grid gap-2 rounded-[1rem] bg-rose-50 p-1 sm:grid-cols-3">
+                          {Object.entries(deliveryPaymentMethodLabels).map(([value, label]) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setDeliveryPaymentMethod(value as DeliveryPaymentMethod)}
+                              className={`rounded-[0.8rem] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+                                deliveryPaymentMethod === value ? "bg-fuchsia-600 text-white" : "text-rose-700"
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   ) : null}
 
@@ -1050,20 +1206,7 @@ export function HomeSection({
                   </div>
                 </div>
 
-                <div className="mt-4 flex flex-col-reverse gap-3 border-t border-rose-100 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPrintSections({ kitchen: true, receipt: true, thanks: true });
-                      setReceiptPaperSize("80mm");
-                      setIsAdvancedOpen(false);
-                      setDiscountAmount("");
-                      setIsReceiptOpen(false);
-                    }}
-                    className="rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
-                  >
-                    Cancelar
-                  </button>
+                <div className="mt-4 flex flex-col gap-3 border-t border-rose-100 pt-4">
                   <div>
                     <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Papel</p>
                     <div className="grid grid-cols-2 gap-2 rounded-full bg-rose-50 p-1">

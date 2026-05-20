@@ -1,17 +1,28 @@
 import type { ReactNode } from "react";
 
 import { DashboardIcon, EventIcon, HomeIcon, IngredientIcon, InventoryIcon, PurchaseIcon, SalesIcon, SettingsIcon } from "../components/icons";
-import type { DeliveryType, InternalSupplyMode, PurchaseEntryType, PurchaseItemType, SaleStatus, StockControlMode } from "../types";
+import type {
+  DeliveryPaymentMethod,
+  DeliveryType,
+  InternalSupplyMode,
+  MovementCategory,
+  MovementPaymentMethod,
+  MovementType,
+  PurchaseEntryType,
+  PurchaseItemType,
+  SaleStatus,
+  StockControlMode,
+} from "../types";
 
 export type PurchaseFormState = {
+  type: MovementType;
+  category: MovementCategory;
   detail: string;
   quantity: string;
-  supplier: string;
-  unitPrice: string;
-  entryType: PurchaseEntryType;
-  itemType: PurchaseItemType;
-  stockControl: StockControlMode;
-  internalSupplyMode: InternalSupplyMode;
+  unit: string;
+  amount: string;
+  paymentMethod: MovementPaymentMethod;
+  date: string;
 };
 
 export type SaleFormState = {
@@ -37,7 +48,7 @@ export type ToastState = {
 };
 
 export type NavItem = {
-  id: "home" | "dashboard" | "compras" | "ventas" | "inventario" | "ingredientes" | "eventos" | "configuracion";
+  id: "home" | "dashboard" | "movimientos" | "ventas" | "inventario" | "ingredientes" | "eventos" | "configuracion";
   label: string;
   icon: ReactNode;
 };
@@ -50,7 +61,14 @@ export const systemName = "Finanzas Ceeseburgers C&K";
 export const saleStatusLabels: Record<SaleStatus, string> = {
   efectivo: "Pagado efectivo",
   transferencia: "Pagado transferencia",
+  mixto: "Pago mixto",
   pendiente: "Pendiente",
+};
+
+export const deliveryPaymentMethodLabels: Record<DeliveryPaymentMethod, string> = {
+  efectivo: "Efectivo",
+  debito: "Debito",
+  nosotros: "Nosotros lo hacemos",
 };
 
 export const purchaseEntryTypeLabels: Record<PurchaseEntryType, string> = {
@@ -76,15 +94,52 @@ export const internalSupplyModeLabels: Record<InternalSupplyMode, string> = {
   stock: "Registrar como stock interno",
 };
 
+export const movementTypeLabels: Record<MovementType, string> = {
+  compra: "Compra",
+  personal: "Personal",
+  operativo: "Operativo",
+  inversion: "Inversion",
+};
+
+export const movementCategoryLabels: Record<MovementCategory, string> = {
+  materia_prima: "Materia prima",
+  bebidas: "Bebidas",
+  envases: "Envases",
+  insumos_cocina: "Insumos cocina",
+  limpieza: "Limpieza",
+  gas: "Gas",
+  transporte: "Transporte",
+  internet: "Internet",
+  luz: "Luz",
+  agua: "Agua",
+  personal: "Personal",
+  inversion: "Inversion",
+};
+
+export const movementPaymentMethodLabels: Record<MovementPaymentMethod, string> = {
+  efectivo: "Efectivo",
+  debito: "Debito",
+  transferencia: "Transferencia",
+  credito: "Credito",
+  otro: "Otro",
+};
+
+export const movementCategoriesByType: Record<MovementType, MovementCategory[]> = {
+  compra: ["materia_prima", "bebidas", "envases", "insumos_cocina", "limpieza"],
+  personal: ["personal"],
+  operativo: ["gas", "transporte", "internet", "luz", "agua"],
+  inversion: ["inversion"],
+};
+
 export const initialPurchaseForm = (): PurchaseFormState => ({
+  type: "compra",
+  category: "materia_prima",
   detail: "",
   quantity: "",
-  supplier: "",
-  unitPrice: "",
-  entryType: "expense",
-  itemType: "sale_inventory",
-  stockControl: "simple",
-  internalSupplyMode: "expense",
+  unit: "unidad",
+  amount: "",
+  paymentMethod: "efectivo",
+  date: new Date().toISOString().slice(0, 10),
 });
 
 export const initialSaleForm = (): SaleFormState => ({
@@ -107,8 +162,8 @@ export const initialInventoryForm = (): InventoryFormState => ({
 export const navItems: NavItem[] = [
   { id: "home", label: "Home", icon: <HomeIcon /> },
   { id: "dashboard", label: "Dashboard", icon: <DashboardIcon /> },
-  { id: "compras", label: "Compras", icon: <PurchaseIcon /> },
   { id: "ventas", label: "Ventas", icon: <SalesIcon /> },
+  { id: "movimientos", label: "Movimientos", icon: <PurchaseIcon /> },
   { id: "inventario", label: "Inventario", icon: <InventoryIcon /> },
   { id: "ingredientes", label: "Control de ingredientes", icon: <IngredientIcon /> },
   { id: "eventos", label: "Eventos", icon: <EventIcon /> },
