@@ -42,6 +42,12 @@ type CartItemFamilyBurger = {
   removedIngredients: string[];
 };
 
+const defaultPrintSections = {
+  kitchen: true,
+  receipt: false,
+  thanks: false,
+};
+
 export function HomeSection({
   activeMenuCategory,
   onRegisterSale,
@@ -65,11 +71,7 @@ export function HomeSection({
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
-  const [printSections, setPrintSections] = useState({
-    kitchen: true,
-    receipt: true,
-    thanks: true,
-  });
+  const [printSections, setPrintSections] = useState(defaultPrintSections);
   const [receiptPaperSize, setReceiptPaperSize] = useState<ReceiptPaperSize>("80mm");
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [discountAmount, setDiscountAmount] = useState("");
@@ -641,7 +643,7 @@ export function HomeSection({
       setIsPrinting(false);
       setIsReceiptOpen(false);
       setCartItems([]);
-      setPrintSections({ kitchen: true, receipt: true, thanks: true });
+      setPrintSections(defaultPrintSections);
       setReceiptPaperSize("80mm");
       setIsAdvancedOpen(false);
       setDiscountAmount("");
@@ -723,7 +725,7 @@ export function HomeSection({
             <button
               type="button"
               onClick={() => {
-                setPrintSections({ kitchen: true, receipt: true, thanks: true });
+                setPrintSections(defaultPrintSections);
                 setReceiptPaperSize("80mm");
                 setIsAdvancedOpen(false);
                 setDiscountAmount("");
@@ -1015,7 +1017,7 @@ export function HomeSection({
               <button
                 type="button"
                 onClick={() => {
-                  setPrintSections({ kitchen: true, receipt: true, thanks: true });
+                  setPrintSections(defaultPrintSections);
                   setReceiptPaperSize("80mm");
                   setIsAdvancedOpen(false);
                   setDiscountAmount("");

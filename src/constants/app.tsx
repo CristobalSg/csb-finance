@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { DashboardIcon, EventIcon, HomeIcon, IngredientIcon, InventoryIcon, PurchaseIcon, SalesIcon, SettingsIcon } from "../components/icons";
+import { DashboardIcon, EventIcon, HomeIcon, IngredientIcon, InventoryIcon, PurchaseIcon, SettingsIcon } from "../components/icons";
 import type {
   DeliveryPaymentMethod,
   DeliveryType,
@@ -162,7 +162,6 @@ export const initialInventoryForm = (): InventoryFormState => ({
 export const navItems: NavItem[] = [
   { id: "home", label: "Home", icon: <HomeIcon /> },
   { id: "dashboard", label: "Dashboard", icon: <DashboardIcon /> },
-  { id: "ventas", label: "Ventas", icon: <SalesIcon /> },
   { id: "movimientos", label: "Movimientos", icon: <PurchaseIcon /> },
   { id: "inventario", label: "Inventario", icon: <InventoryIcon /> },
   { id: "ingredientes", label: "Control de ingredientes", icon: <IngredientIcon /> },

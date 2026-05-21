@@ -69,6 +69,26 @@ export function XIcon() {
   );
 }
 
+export function RefreshIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20 6.75v5h-5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4 17.25v-5h5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M18.5 11.75A6.5 6.5 0 0 0 7.1 7.5L4 12.25" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5.5 12.25A6.5 6.5 0 0 0 16.9 16.5L20 11.75" />
+    </svg>
+  );
+}
+
+export function CopyIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M8 8.25h9.25A1.75 1.75 0 0 1 19 10v9.25A1.75 1.75 0 0 1 17.25 21H8a1.75 1.75 0 0 1-1.75-1.75V10A1.75 1.75 0 0 1 8 8.25Z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 15.75H4.75A1.75 1.75 0 0 1 3 14V4.75A1.75 1.75 0 0 1 4.75 3H14a1.75 1.75 0 0 1 1.75 1.75V5" />
+    </svg>
+  );
+}
+
 export function InventoryIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">

@@ -20,6 +20,47 @@ export type MovementCategory =
 export type MovementPaymentMethod = "efectivo" | "debito" | "transferencia" | "credito" | "otro";
 export type DeliveryType = "retiro" | "delivery";
 export type DeliveryPaymentMethod = "efectivo" | "debito" | "nosotros";
+export type SupabaseOrderStatus = "pending" | "confirmed" | "preparing" | "ready" | "delivered" | "cancelled";
+export type SupabaseOrderType = "pickup" | "delivery";
+export type SupabaseOrderPaymentMethod = "transfer" | "cash";
+export type SupabaseOrderCashPaymentType = "exact" | "amount";
+
+export type SupabaseOrderItem = {
+  cartId?: string;
+  productId?: string;
+  title?: string;
+  category?: string;
+  unitPrice?: number;
+  quantity?: number;
+  lineTotal?: number;
+  selections?: unknown;
+  unitSelections?: unknown;
+  removals?: unknown;
+  unitRemovals?: unknown;
+  notes?: string;
+  [key: string]: unknown;
+};
+
+export type SupabaseOrder = {
+  id: string;
+  created_at: string;
+  customer_name: string;
+  order_type: SupabaseOrderType;
+  address: string | null;
+  payment_method: SupabaseOrderPaymentMethod;
+  cash_payment_type: SupabaseOrderCashPaymentType | null;
+  cash_amount: number | null;
+  subtotal: number;
+  delivery_fee: number;
+  delivery_estimate_min: number | null;
+  delivery_estimate_max: number | null;
+  total: number;
+  total_items: number;
+  status: SupabaseOrderStatus;
+  whatsapp_message: string;
+  items: SupabaseOrderItem[];
+  metadata?: Record<string, unknown>;
+};
 
 export type Purchase = {
   id: string;
@@ -70,6 +111,7 @@ export type SaleOrderItem = {
   quantity: number;
   unitPrice: number;
   total: number;
+  notes?: string;
   drink?: string;
   sauce?: string;
   removedIngredients?: string[];

@@ -1,5 +1,6 @@
 import cors from "cors";
 import express from "express";
+import { createClient } from "@supabase/supabase-js";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { writeFile, unlink } from "node:fs/promises";
@@ -11,6 +12,11 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from "node:pat
 const require = createRequire(import.meta.url);
 const escpos = require("escpos");
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const envPath = resolve(__dirname, ".env");
+
+if (existsSync(envPath) && typeof process.loadEnvFile === "function") {
+  process.loadEnvFile(envPath);
+}
 
 const patchEscposUsbEvents = () => {
   const Module = require("node:module");
@@ -81,12 +87,66 @@ const thanksImageWidth56mm = Number(process.env.THANKS_IMAGE_WIDTH_56MM || 260);
 const receiptPaperDots80mm = Number(process.env.RECEIPT_PAPER_DOTS_80MM || 576);
 const receiptPaperDots56mm = Number(process.env.RECEIPT_PAPER_DOTS_56MM || 384);
 const receiptLogoBottomFeedLines = Number(process.env.RECEIPT_LOGO_BOTTOM_FEED_LINES || 0);
+const orderStatuses = new Set(["pending", "confirmed", "preparing", "ready", "delivered", "cancelled"]);
+const orderColumns = [
+  "id",
+  "created_at",
+  "customer_name",
+  "order_type",
+  "address",
+  "payment_method",
+  "cash_payment_type",
+  "cash_amount",
+  "subtotal",
+  "delivery_fee",
+  "delivery_estimate_min",
+  "delivery_estimate_max",
+  "total",
+  "total_items",
+  "status",
+  "items",
+  "whatsapp_message",
+  "metadata",
+].join(",");
 let receiptLogoPromise;
 const receiptLogoPromises = new Map();
 let receiptLogoLogged = false;
+let supabase;
 
-app.use(cors({ origin: process.env.FRONTEND_ORIGIN || "*" }));
+const allowedOrigins = (process.env.FRONTEND_ORIGIN || "*")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(cors({ origin: allowedOrigins.includes("*") ? "*" : allowedOrigins }));
 app.use(express.json({ limit: "1mb" }));
+
+const getSupabaseClient = () => {
+  if (supabase) {
+    return supabase;
+  }
+
+  const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error("Faltan SUPABASE_URL y/o SUPABASE_SERVICE_ROLE_KEY en el servidor local.");
+  }
+
+  supabase = createClient(supabaseUrl, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
+
+  return supabase;
+};
+
+const sendSupabaseError = (response, error, fallbackMessage) => {
+  console.error(error);
+  response.status(500).json({ error: error instanceof Error ? error.message : fallbackMessage });
+};
 
 const getColumns = (paperSize) => (paperSize === "56mm" ? 32 : 48);
 
@@ -733,6 +793,53 @@ app.get("/printers", (_request, response) => {
       });
     },
   );
+});
+
+app.get("/orders", async (_request, response) => {
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from("orders")
+      .select(orderColumns)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      response.status(500).json({ error: error.message });
+      return;
+    }
+
+    response.json({ orders: data ?? [] });
+  } catch (error) {
+    sendSupabaseError(response, error, "No fue posible listar los pedidos.");
+  }
+});
+
+app.patch("/orders/:id/status", async (request, response) => {
+  const status = String(request.body?.status ?? "");
+
+  if (!orderStatuses.has(status)) {
+    response.status(400).json({ error: "Estado de pedido invalido." });
+    return;
+  }
+
+  try {
+    const client = getSupabaseClient();
+    const { data, error } = await client
+      .from("orders")
+      .update({ status })
+      .eq("id", request.params.id)
+      .select(orderColumns)
+      .single();
+
+    if (error) {
+      response.status(500).json({ error: error.message });
+      return;
+    }
+
+    response.json({ order: data });
+  } catch (error) {
+    sendSupabaseError(response, error, "No fue posible actualizar el pedido.");
+  }
 });
 
 app.post("/print", async (request, response) => {

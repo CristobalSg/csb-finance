@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import type { NavItem } from "../../constants/app";
 import { shellCardClass } from "../../constants/app";
 import { orderMenuCategories, type OrderMenuCategoryId } from "../../data/order-menu";
-import { ArrowUpIcon } from "../icons";
+import { ArrowUpIcon, PurchaseIcon, SalesIcon } from "../icons";
 
 export function AppSidebar({
   items,
@@ -11,12 +11,16 @@ export function AppSidebar({
   activeMenuCategory,
   onSelect,
   onSelectMenuCategory,
+  onOpenSales,
+  onOpenOrders,
 }: {
   items: NavItem[];
   activeItem: NavItem["id"];
   activeMenuCategory: OrderMenuCategoryId;
   onSelect: (id: NavItem["id"]) => void;
   onSelectMenuCategory: (id: OrderMenuCategoryId) => void;
+  onOpenSales: () => void;
+  onOpenOrders: () => void;
 }) {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
 
@@ -31,7 +35,7 @@ export function AppSidebar({
 
   return (
     <aside className="h-full min-h-0">
-      <div className={`${shellCardClass} relative flex h-full flex-col overflow-hidden border-rose-100/80 bg-white/80 pb-20`}>
+      <div className={`${shellCardClass} relative flex h-full flex-col overflow-hidden border-rose-100/80 bg-white/80 ${activeItem === "home" ? "pb-52" : "pb-20"}`}>
         <button
           type="button"
           onClick={() => onSelect("home")}
@@ -46,22 +50,46 @@ export function AppSidebar({
         </button>
 
         {activeItem === "home" ? (
-          <nav className="min-h-0 flex-1 space-y-3 overflow-auto pr-1">
-            {orderMenuCategories.map((category) => (
-              <button
-                key={category.id}
-                type="button"
-                onClick={() => openMenuCategory(category.id)}
-                className={`flex w-full items-center rounded-[1.35rem] border px-4 py-3 text-left text-xs font-black uppercase tracking-[0.12em] transition ${
-                  activeMenuCategory === category.id
-                    ? "border-fuchsia-200 bg-white text-fuchsia-700 shadow-sm"
-                    : "border-transparent bg-rose-50/80 text-rose-700 hover:border-rose-200 hover:bg-white hover:text-fuchsia-700"
-                }`}
-              >
-                {category.label}
-              </button>
-            ))}
-          </nav>
+          <>
+            <nav className="min-h-0 flex-1 space-y-3 overflow-auto pr-1">
+              {orderMenuCategories.map((category) => (
+                <button
+                  key={category.id}
+                  type="button"
+                  onClick={() => openMenuCategory(category.id)}
+                  className={`flex w-full items-center rounded-[1.35rem] border px-4 py-3 text-left text-xs font-black uppercase tracking-[0.12em] transition ${
+                    activeMenuCategory === category.id
+                      ? "border-fuchsia-200 bg-white text-fuchsia-700 shadow-sm"
+                      : "border-transparent bg-rose-50/80 text-rose-700 hover:border-rose-200 hover:bg-white hover:text-fuchsia-700"
+                  }`}
+                >
+                  {category.label}
+                </button>
+              ))}
+            </nav>
+
+            <button
+              type="button"
+              onClick={onOpenSales}
+              className="absolute inset-x-5 bottom-[10.5rem] z-10 flex items-center gap-3 rounded-[1.35rem] border border-rose-200 bg-white px-4 py-3 text-left text-sm font-black text-fuchsia-700 shadow-lg shadow-fuchsia-300/20 transition hover:border-fuchsia-200 hover:bg-fuchsia-50"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-fuchsia-50 text-fuchsia-700">
+                <SalesIcon />
+              </span>
+              <span>Ventas</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenOrders}
+              className="absolute inset-x-5 bottom-[5.75rem] z-10 flex items-center gap-3 rounded-[1.35rem] border border-fuchsia-200 bg-fuchsia-600 px-4 py-3 text-left text-sm font-black text-white shadow-lg shadow-fuchsia-300/40 transition hover:bg-fuchsia-700"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-white/15 text-white">
+                <PurchaseIcon />
+              </span>
+              <span>Pedidos</span>
+            </button>
+          </>
         ) : (
           <div className="min-h-0 flex-1" />
         )}

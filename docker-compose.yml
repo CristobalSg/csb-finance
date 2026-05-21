@@ -10,10 +10,12 @@ services:
     build:
       context: .
       dockerfile: printer-server/Dockerfile
+    env_file:
+      - printer-server/.env
     environment:
       PRINTER_SERVER_HOST: 0.0.0.0
       PRINTER_SERVER_PORT: 3001
-      FRONTEND_ORIGIN: http://localhost:8080
+      FRONTEND_ORIGIN: http://localhost:8080,http://localhost:5173
       PRINTER_CONNECTION: ${PRINTER_CONNECTION:-network}
       PRINTER_HOST: ${PRINTER_HOST:-}
       PRINTER_PORT: ${PRINTER_PORT:-9100}

@@ -4,9 +4,11 @@ import { ErrorBanner, ToastBanner } from "./components/common/FeedbackBanners";
 import { AppSidebar } from "./components/layout/AppSidebar";
 import { MobileNav } from "./components/layout/MobileNav";
 import { navItems } from "./constants/app";
+import { RefreshIcon, XIcon } from "./components/icons";
 import type { OrderMenuCategoryId } from "./data/order-menu";
 import { useFinanceData } from "./hooks/useFinanceData";
 import { IngredientControlPage } from "./pages/IngredientControlPage";
+import { OrdersManagementPage } from "./pages/OrdersManagementPage";
 import { DashboardSection } from "./sections/DashboardSection";
 import { EventsSection } from "./sections/EventsSection";
 import { HomeSection } from "./sections/HomeSection";
@@ -21,6 +23,9 @@ export default function App() {
   const finance = useFinanceData();
   const [activeSection, setActiveSection] = useState<(typeof navItems)[number]["id"]>("home");
   const [activeMenuCategory, setActiveMenuCategory] = useState<OrderMenuCategoryId>("offers");
+  const [isSalesModalOpen, setIsSalesModalOpen] = useState(false);
+  const [isOrdersModalOpen, setIsOrdersModalOpen] = useState(false);
+  const [ordersRefreshToken, setOrdersRefreshToken] = useState(0);
   const [theme, setTheme] = useState<AppTheme>(() => {
     const savedTheme = localStorage.getItem("theme");
 
@@ -35,6 +40,34 @@ export default function App() {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    if (!isOrdersModalOpen && !isSalesModalOpen) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsOrdersModalOpen(false);
+        setIsSalesModalOpen(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOrdersModalOpen, isSalesModalOpen]);
+
+  const salesSection = (
+    <SalesSection
+      loading={finance.loading}
+      sales={finance.sales}
+      onDelete={(id) => void finance.handleDelete("sales", id)}
+      onUpdateStatus={(id, status, paymentAmounts) => void finance.updateSaleStatus(id, status, paymentAmounts)}
+      onUpdateSale={(id, updates) => void finance.updateSaleDetails(id, updates)}
+      onExport={finance.exportSalesCsv}
+      onImport={finance.importSalesCsv}
+    />
+  );
 
   const contentBySection = {
     home: <HomeSection activeMenuCategory={activeMenuCategory} onRegisterSale={finance.addSaleFromOrder} />,
@@ -61,17 +94,7 @@ export default function App() {
         onImport={finance.importPurchasesCsv}
       />
     ),
-    ventas: (
-      <SalesSection
-        loading={finance.loading}
-        sales={finance.sales}
-        onDelete={(id) => void finance.handleDelete("sales", id)}
-        onUpdateStatus={(id, status, paymentAmounts) => void finance.updateSaleStatus(id, status, paymentAmounts)}
-        onUpdateSale={(id, updates) => void finance.updateSaleDetails(id, updates)}
-        onExport={finance.exportSalesCsv}
-        onImport={finance.importSalesCsv}
-      />
-    ),
+    ventas: salesSection,
     inventario: (
       <InventorySection
         loading={finance.loading}
@@ -103,6 +126,8 @@ export default function App() {
               activeMenuCategory={activeMenuCategory}
               onSelect={setActiveSection}
               onSelectMenuCategory={setActiveMenuCategory}
+              onOpenSales={() => setIsSalesModalOpen(true)}
+              onOpenOrders={() => setIsOrdersModalOpen(true)}
             />
           </div>
 
@@ -130,6 +155,72 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {isSalesModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 bg-rose-950/60 p-3 backdrop-blur-sm sm:p-5"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Gestion de ventas"
+        >
+          <div className="mx-auto flex h-full max-w-[1480px] flex-col overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/85 shadow-[0_30px_90px_rgba(28,25,23,0.35)] backdrop-blur">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-rose-100 bg-white/70 px-4 py-3 sm:px-5">
+              <div>
+                <p className="text-xs font-black uppercase text-fuchsia-600">Modulo interno</p>
+                <h2 className="text-lg font-black text-rose-950">Ventas</h2>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSalesModalOpen(false)}
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-white hover:text-fuchsia-700"
+                aria-label="Cerrar ventas"
+              >
+                <XIcon />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-5">{salesSection}</div>
+          </div>
+        </div>
+      ) : null}
+
+      {isOrdersModalOpen ? (
+        <div
+          className="fixed inset-0 z-50 bg-rose-950/60 p-3 backdrop-blur-sm sm:p-5"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Gestion de pedidos"
+        >
+          <div className="mx-auto flex h-full max-w-[1480px] flex-col overflow-hidden rounded-[1.75rem] border border-white/70 bg-white/85 shadow-[0_30px_90px_rgba(28,25,23,0.35)] backdrop-blur">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b border-rose-100 bg-white/70 px-4 py-3 sm:px-5">
+              <div>
+                <p className="text-xs font-black uppercase text-fuchsia-600">Modulo interno</p>
+                <h2 className="text-lg font-black text-rose-950">Pedidos</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setOrdersRefreshToken((current) => current + 1)}
+                  className="flex h-11 w-11 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-white hover:text-fuchsia-700"
+                  aria-label="Actualizar pedidos"
+                >
+                  <RefreshIcon />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsOrdersModalOpen(false)}
+                  className="flex h-11 w-11 items-center justify-center rounded-full border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-white hover:text-fuchsia-700"
+                  aria-label="Cerrar pedidos"
+                >
+                  <XIcon />
+                </button>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-5">
+              <OrdersManagementPage refreshToken={ordersRefreshToken} />
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

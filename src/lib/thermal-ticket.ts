@@ -163,6 +163,7 @@ const shouldShowSauce = (item: Pick<SaleOrderItem, "name" | "sauce">) => Boolean
 const getItemNotes = (item: SaleOrderItem) =>
   [
     familyComboDescriptions[item.name] ? `Incluye: ${familyComboDescriptions[item.name]}` : "",
+    item.notes?.trim() ? `Nota: ${item.notes.trim()}` : "",
     item.drink ? `Bebida: ${item.drink}` : "",
     shouldShowSauce(item) ? `Salsa: ${item.sauce}` : "",
     item.removedIngredients?.length ? `Sin: ${item.removedIngredients.join(", ")}` : "",

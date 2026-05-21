@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PaginationControls } from "../components/common/PaginationControls";
 import { TableEmpty } from "../components/common/TableEmpty";
-import { DotsIcon, PaymentIcon, PrintIcon, XIcon } from "../components/icons";
+import { CopyIcon, DotsIcon, PaymentIcon, PrintIcon, XIcon } from "../components/icons";
 import { deliveryPaymentMethodLabels, saleStatusLabels, shellCardClass } from "../constants/app";
 import { familyComboDescriptions } from "../data/order-menu";
 import { formatShortDate } from "../lib/date";
@@ -20,7 +20,7 @@ const DAILY_REPORT_END_HOUR = 2;
 type SalesReportPeriod = "daily" | "weekly" | "monthly";
 
 const defaultReceiptPrintSections = {
-  kitchen: true,
+  kitchen: false,
   receipt: true,
   thanks: true,
 };
@@ -259,6 +259,7 @@ export function SalesSection({
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
   const [paymentSale, setPaymentSale] = useState<Sale | null>(null);
   const [actionsSaleId, setActionsSaleId] = useState<string | null>(null);
+  const [copiedSaleId, setCopiedSaleId] = useState<string | null>(null);
   const [mixedCashAmount, setMixedCashAmount] = useState("");
   const [mixedTransferAmount, setMixedTransferAmount] = useState("");
   const [saleEditForm, setSaleEditForm] = useState<SaleEditForm>({
@@ -301,6 +302,19 @@ export function SalesSection({
     setReceiptSale(sale);
     setReceiptPrintSections(defaultReceiptPrintSections);
     setReceiptPaperSize("80mm");
+  };
+
+  const copySaleLocation = async (sale: Sale) => {
+    const location = sale.deliveryType === "delivery" ? sale.deliveryAddress || "Delivery sin direccion" : "Retiro en local";
+    const text = [`Nombre: ${sale.client || "Sin cliente"}`, `Lugar: ${location}`].join("\n");
+
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedSaleId(sale.id);
+      window.setTimeout(() => setCopiedSaleId((current) => (current === sale.id ? null : current)), 1600);
+    } catch {
+      window.alert("No fue posible copiar los datos del pedido.");
+    }
   };
 
   const openEditSale = (sale: Sale) => {
@@ -1427,6 +1441,19 @@ export function SalesSection({
                           </td>
                           <td className="py-4">
                             <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
+                              <button
+                                type="button"
+                                onClick={() => void copySaleLocation(sale)}
+                                className={`inline-flex h-10 w-10 items-center justify-center rounded-full border shadow-sm transition focus:outline-none focus:ring-2 focus:ring-fuchsia-300 ${
+                                  copiedSaleId === sale.id
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                                    : "border-rose-200 bg-white text-rose-600 hover:border-fuchsia-700 hover:bg-fuchsia-700 hover:text-white hover:shadow-md"
+                                }`}
+                                aria-label="Copiar nombre y lugar"
+                                title="Copiar nombre y lugar"
+                              >
+                                <CopyIcon />
+                              </button>
                               <button
                                 type="button"
                                 onClick={() => openReprintReceipt(sale)}
