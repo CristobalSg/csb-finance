@@ -13,30 +13,28 @@ import { HomeSection } from "./sections/HomeSection";
 import { InventorySection } from "./sections/InventorySection";
 import { PurchasesSection } from "./sections/PurchasesSection";
 import { SalesSection } from "./sections/SalesSection";
-import { SettingsSection } from "./sections/SettingsSection";
+import { SettingsSection, type AppTheme } from "./sections/SettingsSection";
+
+const appThemes: AppTheme[] = ["light", "dark", "red-dark", "gray-dark"];
 
 export default function App() {
   const finance = useFinanceData();
   const [activeSection, setActiveSection] = useState<(typeof navItems)[number]["id"]>("home");
   const [activeMenuCategory, setActiveMenuCategory] = useState<OrderMenuCategoryId>("offers");
-  const [isDarkMode, setIsDarkMode] = useState(() => {
+  const [theme, setTheme] = useState<AppTheme>(() => {
     const savedTheme = localStorage.getItem("theme");
 
-    if (savedTheme === "dark") {
-      return true;
+    if (appThemes.includes(savedTheme as AppTheme)) {
+      return savedTheme as AppTheme;
     }
 
-    if (savedTheme === "light") {
-      return false;
-    }
-
-    return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   });
 
   useEffect(() => {
-    document.documentElement.dataset.theme = isDarkMode ? "dark" : "light";
-    localStorage.setItem("theme", isDarkMode ? "dark" : "light");
-  }, [isDarkMode]);
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem("theme", theme);
+  }, [theme]);
 
   const contentBySection = {
     home: <HomeSection activeMenuCategory={activeMenuCategory} onRegisterSale={finance.addSaleFromOrder} />,
@@ -86,10 +84,10 @@ export default function App() {
     eventos: <EventsSection />,
     configuracion: (
       <SettingsSection
-        isDarkMode={isDarkMode}
+        theme={theme}
         onExport={finance.exportBackup}
         onClearAllData={() => void finance.handleClearAllData()}
-        onToggleDarkMode={() => setIsDarkMode((current) => !current)}
+        onThemeChange={setTheme}
       />
     ),
   } as const;

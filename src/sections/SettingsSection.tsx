@@ -8,16 +8,30 @@ import { buildTestTicketData, buildThanksTestTicketData, type ReceiptPaperSize }
 const horizontalLogoPath = "Logo_ceese_horizontal_png.png";
 const thanksImagePath = "ceeseburgito.jpeg";
 
+export type AppTheme = "light" | "dark" | "red-dark" | "gray-dark";
+
+const themeOptions: Array<{
+  id: AppTheme;
+  label: string;
+  detail: string;
+  swatchClass: string;
+}> = [
+  { id: "light", label: "Blanco", detail: "Fondo claro", swatchClass: "bg-white" },
+  { id: "dark", label: "Negro", detail: "Fondo negro", swatchClass: "bg-stone-950" },
+  { id: "red-dark", label: "Rojo oscuro", detail: "Fondo rojo profundo", swatchClass: "bg-red-950" },
+  { id: "gray-dark", label: "Plomo oscuro", detail: "Fondo gris oscuro", swatchClass: "bg-stone-700" },
+];
+
 export function SettingsSection({
-  isDarkMode,
+  theme,
   onExport,
   onClearAllData,
-  onToggleDarkMode,
+  onThemeChange,
 }: {
-  isDarkMode: boolean;
+  theme: AppTheme;
   onExport: () => void;
   onClearAllData: () => void;
-  onToggleDarkMode: () => void;
+  onThemeChange: (theme: AppTheme) => void;
 }) {
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("80mm");
   const [isPrinting, setIsPrinting] = useState(false);
@@ -80,15 +94,31 @@ export function SettingsSection({
         <div className="grid gap-4 lg:grid-cols-3">
           <div className="rounded-2xl border border-rose-100 bg-white/70 p-4">
             <p className="text-sm font-bold text-rose-950">Apariencia</p>
-            <p className="mt-2 text-sm text-rose-700/80">Cambia entre modo claro y modo oscuro.</p>
-            <button
-              type="button"
-              onClick={onToggleDarkMode}
-              className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-800 shadow-sm transition hover:border-fuchsia-200 hover:text-fuchsia-700"
-            >
-              {isDarkMode ? <SunIcon /> : <MoonIcon />}
-              {isDarkMode ? "Activar modo claro" : "Activar modo oscuro"}
-            </button>
+            <p className="mt-2 text-sm text-rose-700/80">Elige el tema visual de la app.</p>
+            <div className="mt-5 grid gap-2">
+              {themeOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => onThemeChange(option.id)}
+                  className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left text-sm font-semibold shadow-sm transition ${
+                    theme === option.id
+                      ? "border-fuchsia-300 bg-fuchsia-50 text-fuchsia-700"
+                      : "border-rose-100 bg-white text-rose-800 hover:border-fuchsia-200 hover:text-fuchsia-700"
+                  }`}
+                  aria-pressed={theme === option.id}
+                >
+                  <span className={`h-9 w-9 rounded-full border border-white/80 shadow-sm ${option.swatchClass}`} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block">{option.label}</span>
+                    <span className="block text-xs font-medium text-rose-500">{option.detail}</span>
+                  </span>
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/80 text-current">
+                    {option.id === "light" ? <SunIcon /> : <MoonIcon />}
+                  </span>
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="rounded-2xl border border-rose-100 bg-white/70 p-4">

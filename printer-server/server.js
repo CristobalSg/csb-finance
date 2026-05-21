@@ -76,7 +76,6 @@ const printerEventCutFeedLines = Number(process.env.PRINTER_EVENT_CUT_FEED_LINES
 const receiptLogoWidth80mm = Number(process.env.RECEIPT_LOGO_WIDTH_80MM || 384);
 const receiptLogoWidth56mm = Number(process.env.RECEIPT_LOGO_WIDTH_56MM || 256);
 const horizontalReceiptLogoWidth56mm = Number(process.env.HORIZONTAL_RECEIPT_LOGO_WIDTH_56MM || 300);
-const horizontalReceiptLogoPaperDots56mm = Number(process.env.HORIZONTAL_RECEIPT_LOGO_PAPER_DOTS_56MM || 300);
 const thanksImageWidth80mm = Number(process.env.THANKS_IMAGE_WIDTH_80MM || 360);
 const thanksImageWidth56mm = Number(process.env.THANKS_IMAGE_WIDTH_56MM || 260);
 const receiptPaperDots80mm = Number(process.env.RECEIPT_PAPER_DOTS_80MM || 576);
@@ -113,13 +112,7 @@ const getPrintableLogoWidth = (paperSize, logoPath) => {
   return getReceiptLogoWidth(paperSize);
 };
 
-const getPrintableLogoCanvasWidth = (paperSize, logoPath) => {
-  if (paperSize === "56mm" && isHorizontalReceiptLogo(logoPath)) {
-    return Number.isFinite(horizontalReceiptLogoPaperDots56mm) && horizontalReceiptLogoPaperDots56mm > 0
-      ? Math.floor(horizontalReceiptLogoPaperDots56mm)
-      : getReceiptPaperDots(paperSize);
-  }
-
+const getPrintableLogoCanvasWidth = (paperSize) => {
   return getReceiptPaperDots(paperSize);
 };
 
@@ -518,8 +511,8 @@ const printReceiptLogo = async (printer, paperSize, logoPath) => {
 
   const shouldAddHorizontalLogoSpacing = isHorizontalReceiptLogo(logoPath);
   const resizedLogo = resizeReceiptLogo(logo, getPrintableLogoWidth(paperSize, logoPath));
-  const printableLogo = centerReceiptLogo(resizedLogo, getPrintableLogoCanvasWidth(paperSize, logoPath));
-  printer.align("ct");
+  const printableLogo = centerReceiptLogo(resizedLogo, getPrintableLogoCanvasWidth(paperSize));
+  printer.align("lt");
   await printer.image(printableLogo, "d24");
   printer.align("lt");
   setTicketLineSpacing(printer);
@@ -572,7 +565,7 @@ const printThanksImage = async (printer, section, paperSize) => {
 
   const resizedImage = resizeReceiptLogo(image, getThanksImageWidth(paperSize));
   const printableImage = centerReceiptLogo(resizedImage, getReceiptPaperDots(paperSize));
-  printer.align("ct");
+  printer.align("lt");
   await printer.image(printableImage, "d24");
   printer.align("lt");
   setTicketLineSpacing(printer);
