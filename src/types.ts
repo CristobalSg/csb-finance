@@ -1,9 +1,25 @@
-export type SaleStatus = "efectivo" | "transferencia" | "pendiente";
+export type SaleStatus = "efectivo" | "transferencia" | "mixto" | "pendiente";
 export type PurchaseEntryType = "investment" | "expense";
 export type PurchaseItemType = "sale_inventory" | "rotating_input" | "operating_expense" | "internal_supply";
 export type StockControlMode = "simple" | "batch" | "consumption";
 export type InternalSupplyMode = "expense" | "stock";
+export type MovementType = "compra" | "personal" | "operativo" | "inversion";
+export type MovementCategory =
+  | "materia_prima"
+  | "bebidas"
+  | "envases"
+  | "insumos_cocina"
+  | "limpieza"
+  | "gas"
+  | "transporte"
+  | "internet"
+  | "luz"
+  | "agua"
+  | "personal"
+  | "inversion";
+export type MovementPaymentMethod = "efectivo" | "debito" | "transferencia" | "credito" | "otro";
 export type DeliveryType = "retiro" | "delivery";
+export type DeliveryPaymentMethod = "efectivo" | "debito" | "nosotros";
 
 export type Purchase = {
   id: string;
@@ -19,6 +35,11 @@ export type Purchase = {
   affectsInventory?: boolean;
   stockControl?: StockControlMode;
   internalSupplyMode?: InternalSupplyMode;
+  movementType?: MovementType;
+  category?: MovementCategory;
+  unit?: string;
+  amount?: number;
+  paymentMethod?: MovementPaymentMethod;
   inventoryItemId?: string;
   stockMovementId?: string;
 };
@@ -31,11 +52,14 @@ export type Sale = {
   detail: string;
   total: number;
   status: SaleStatus;
+  cashAmount?: number;
+  transferAmount?: number;
   quantity?: number;
   productName?: string;
   deliveryType?: DeliveryType;
   deliveryAddress?: string;
   deliveryFee?: number;
+  deliveryPaymentMethod?: DeliveryPaymentMethod;
   discountAmount?: number;
   fulfillmentTime?: string;
   orderItems?: SaleOrderItem[];

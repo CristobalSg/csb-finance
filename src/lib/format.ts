@@ -1,3 +1,4 @@
+import { deliveryPaymentMethodLabels, movementCategoryLabels, movementPaymentMethodLabels, movementTypeLabels } from "../constants/app";
 import type { InventoryItem, Purchase, Sale } from "../types";
 import { getSaleDeliveryFee, getSaleDiscountAmount, getSaleNetTotal } from "./sales";
 
@@ -33,20 +34,18 @@ export const downloadFile = (filename: string, content: string, mimeType: string
 const escapeCell = (value: string | number) => `"${String(value).replaceAll('"', '""')}"`;
 
 export const purchaseRowsToCsv = (rows: Purchase[]) => {
-  const header = ["FECHA", "DETALLE", "TIPO", "ITEM", "AFECTA_INVENTARIO", "CONTROL_STOCK", "Cantidad", "Categoría", "LUGAR", "PRECIO", "TOTAL"];
+  const header = ["ID", "FECHA", "TIPO", "CATEGORIA", "DETALLE", "CANTIDAD", "UNIDAD", "MONTO", "MEDIO_PAGO"];
   const body = rows.map((row) =>
     [
+      row.id,
       row.date,
+      row.movementType ? movementTypeLabels[row.movementType] : row.entryType ?? "expense",
+      row.category ? movementCategoryLabels[row.category] : "",
       row.detail,
-      row.entryType ?? "expense",
-      row.itemType ?? "operating_expense",
-      row.affectsInventory ? "SI" : "NO",
-      row.stockControl ?? "",
       row.quantity,
-      "",
-      row.supplier,
-      row.unitPrice,
-      row.total,
+      row.unit ?? "unidad",
+      row.amount ?? row.total,
+      row.paymentMethod ? movementPaymentMethodLabels[row.paymentMethod] : row.supplier,
     ]
       .map(escapeCell)
       .join(","),
@@ -65,9 +64,12 @@ export const salesRowsToCsv = (rows: Sale[]) => {
     "DIRECCION",
     "HORA ENTREGA",
     "DELIVERY",
+    "PAGO_DELIVERY",
     "DESCUENTO",
     "TOTAL",
     "TOTAL_COBRADO",
+    "PAGO_EFECTIVO",
+    "PAGO_DEBITO",
     "ESTADO",
   ];
   const body = rows.map((row) => {
@@ -98,9 +100,12 @@ export const salesRowsToCsv = (rows: Sale[]) => {
       row.deliveryAddress ?? "",
       row.fulfillmentTime ?? "",
       getSaleDeliveryFee(row),
+      row.deliveryPaymentMethod ? deliveryPaymentMethodLabels[row.deliveryPaymentMethod] : "",
       getSaleDiscountAmount(row),
       getSaleNetTotal(row),
       row.total,
+      row.cashAmount ?? "",
+      row.transferAmount ?? "",
       row.status,
     ]
       .map(escapeCell)

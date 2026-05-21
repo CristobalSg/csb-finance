@@ -24,9 +24,14 @@ import { createId } from "../lib/id";
 import { getSaleNetTotal } from "../lib/sales";
 import type {
   BackupPayload,
+  DeliveryPaymentMethod,
   DeliveryType,
   InventoryItem,
+  MovementCategory,
+  MovementPaymentMethod,
+  MovementType,
   Purchase,
+  PurchaseEntryType,
   PurchaseItemType,
   Sale,
   SaleOrderItem,
@@ -39,6 +44,16 @@ import type {
 import type { InventorySaleInputItem } from "../types/inventory";
 
 const getNumericValue = (value: string) => Number(value || 0);
+const initialBalances = {
+  cash: 51640,
+  debit: 96292,
+  controlStartDate: "2026-05-19",
+};
+
+const isWithinControlPeriod = (date: string) => date >= initialBalances.controlStartDate;
+
+const isDebitLikePayment = (paymentMethod?: MovementPaymentMethod) =>
+  paymentMethod === "debito" || paymentMethod === "transferencia" || paymentMethod === "credito" || paymentMethod === "otro";
 const normalizeCsvHeader = (value: string) =>
   value
     .normalize("NFD")
@@ -78,21 +93,199 @@ const parseCsvLine = (line: string) => {
 };
 
 const parsePurchaseDate = (raw: string) => {
-  const dateParts = raw.split("-").map((part) => part.trim());
+  const value = raw.trim();
 
-  if (dateParts.length !== 3) {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  const dateParts = value.split(/[/-]/).map((part) => part.trim());
+
+  if (dateParts.length !== 2 && dateParts.length !== 3) {
     return null;
   }
 
-  const [day, month, yearPart] = dateParts;
+  const [day, month, yearPart = getCurrentDate().slice(0, 4)] = dateParts;
   const year = yearPart.length === 2 ? `20${yearPart}` : yearPart;
   return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
+};
+
+const parseSaleDate = (raw: string) => {
+  const value = raw.trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return value;
+  }
+
+  return parsePurchaseDate(value);
+};
+
+const createSaleCreatedAt = (date: string) => {
+  const parsedDate = new Date(`${date}T12:00:00`);
+  return Number.isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString();
 };
 
 const parseCurrencyValue = (value: string) => {
   const normalized = value.replace(/\$/g, "").replace(/\./g, "").replace(/,/g, ".").trim();
   const number = Number.parseFloat(normalized);
   return Number.isFinite(number) ? number : NaN;
+};
+
+const getOptionalCurrencyValue = (value: string) => {
+  const parsed = parseCurrencyValue(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const parseDeliveryType = (raw: string): DeliveryType => {
+  const delivery = normalizeCsvHeader(raw);
+  return delivery.includes("DELIVERY") ? "delivery" : "retiro";
+};
+
+const parseDeliveryPaymentMethod = (raw: string): DeliveryPaymentMethod | undefined => {
+  const paymentMethod = normalizeCsvHeader(raw);
+  if (!paymentMethod) return undefined;
+  if (paymentMethod.includes("NOSOTROS")) return "nosotros";
+  if (paymentMethod.includes("DEBITO") || paymentMethod.includes("TARJETA")) return "debito";
+  if (paymentMethod.includes("EFECTIVO")) return "efectivo";
+  return undefined;
+};
+
+const parseMovementPaymentMethod = (raw: string): MovementPaymentMethod => {
+  const paymentMethod = normalizeCsvHeader(raw);
+  if (paymentMethod.includes("EFECTIVO")) return "efectivo";
+  if (paymentMethod.includes("DEBITO") || paymentMethod.includes("TARJETA")) return "debito";
+  if (paymentMethod.includes("TRANSFER")) return "transferencia";
+  if (paymentMethod.includes("CREDITO")) return "credito";
+  return "otro";
+};
+
+const resolveMovementType = (rawCategory: string): MovementType => {
+  const category = normalizeCsvHeader(rawCategory);
+  if (category.includes("PERSONAL")) return "personal";
+  if (category.includes("INVERSION")) return "inversion";
+  if (category.includes("GASTO") || category.includes("OPERATIVO")) return "operativo";
+  return "compra";
+};
+
+const resolveMovementCategory = (detail: string, movementType: MovementType): MovementCategory => {
+  const normalizedDetail = normalizeCsvHeader(detail);
+
+  if (movementType === "personal") return "personal";
+  if (movementType === "inversion") return "inversion";
+  if (movementType === "operativo") {
+    if (normalizedDetail.includes("GAS")) return "gas";
+    if (normalizedDetail.includes("TRANSPORTE") || normalizedDetail.includes("UBER")) return "transporte";
+    if (normalizedDetail.includes("TELSUR") || normalizedDetail.includes("INTERNET")) return "internet";
+    if (normalizedDetail.includes("FRONTEL") || normalizedDetail.includes("LUZ")) return "luz";
+    if (normalizedDetail.includes("AGUA")) return "agua";
+    return "transporte";
+  }
+
+  if (normalizedDetail.includes("BEBIDA") || normalizedDetail.includes("COCA") || normalizedDetail.includes("FANTA") || normalizedDetail.includes("SPRITE")) {
+    return "bebidas";
+  }
+
+  if (
+    normalizedDetail.includes("ENVASE") ||
+    normalizedDetail.includes("POTE") ||
+    normalizedDetail.includes("VASO") ||
+    normalizedDetail.includes("BOLSA") ||
+    normalizedDetail.includes("ROLLO") ||
+    normalizedDetail.includes("ALUMINIO")
+  ) {
+    return "envases";
+  }
+
+  if (
+    normalizedDetail.includes("NOVA") ||
+    normalizedDetail.includes("CONFORT") ||
+    normalizedDetail.includes("LIMPIEZA")
+  ) {
+    return "limpieza";
+  }
+
+  if (
+    normalizedDetail.includes("ACEITE") ||
+    normalizedDetail.includes("BBQ") ||
+    normalizedDetail.includes("SALSA") ||
+    normalizedDetail.includes("MAYONESA") ||
+    normalizedDetail.includes("MOSTAZA")
+  ) {
+    return "insumos_cocina";
+  }
+
+  return "materia_prima";
+};
+
+const parseExportedOrderItems = (orderText: string, fallbackTotal: number): SaleOrderItem[] | undefined => {
+  const rawItems = orderText
+    .split("|")
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (rawItems.length === 0) {
+    return undefined;
+  }
+
+  const parsedItems = rawItems.map((rawItem) => {
+    const match = rawItem.match(/^(\d+(?:[.,]\d+)?)\s*x\s*(.+)$/i);
+    const quantity = match ? Number.parseFloat(match[1].replace(",", ".")) || 1 : 1;
+    const itemText = match ? match[2].trim() : rawItem;
+    const notesMatch = itemText.match(/^(.*?)\s*\((.*)\)$/);
+    const name = (notesMatch ? notesMatch[1] : itemText).trim();
+    const notes = (notesMatch?.[2] ?? "")
+      .split("·")
+      .map((note) => note.trim())
+      .filter(Boolean);
+    const drink = notes.find((note) => normalizeCsvHeader(note).startsWith("BEBIDA:"))?.replace(/^Bebida:\s*/i, "");
+    const sauce = notes.find((note) => normalizeCsvHeader(note).startsWith("SALSA:"))?.replace(/^Salsa:\s*/i, "");
+    const removedIngredients = notes
+      .find((note) => normalizeCsvHeader(note).startsWith("SIN:"))
+      ?.replace(/^Sin:\s*/i, "")
+      .split(",")
+      .map((ingredient) => ingredient.trim())
+      .filter(Boolean);
+    const familyBurgers = notes
+      .map((note) => {
+        const familyBurgerMatch = note.match(/^(.+?):\s*sin\s+(.+)$/i);
+
+        if (!familyBurgerMatch) {
+          return null;
+        }
+
+        return {
+          label: familyBurgerMatch[1].trim(),
+          name: familyBurgerMatch[1].trim().replace(/\s+\d+$/, ""),
+          removedIngredients: familyBurgerMatch[2]
+            .split(",")
+            .map((ingredient) => ingredient.trim())
+            .filter(Boolean),
+        };
+      })
+      .filter((burger): burger is NonNullable<typeof burger> => Boolean(burger));
+
+    return {
+      name,
+      quantity,
+      unitPrice: 0,
+      total: 0,
+      drink,
+      sauce,
+      removedIngredients,
+      familyBurgers: familyBurgers.length > 0 ? familyBurgers : undefined,
+    } satisfies SaleOrderItem;
+  });
+
+  const totalQuantity = parsedItems.reduce((total, item) => total + item.quantity, 0) || 1;
+
+  return parsedItems.map((item) => {
+    const itemTotal = Math.round((fallbackTotal * item.quantity) / totalQuantity);
+    return {
+      ...item,
+      unitPrice: item.quantity > 0 ? Math.round(itemTotal / item.quantity) : itemTotal,
+      total: itemTotal,
+    };
+  });
 };
 
 const normalizeText = (value: string) =>
@@ -109,12 +302,18 @@ const normalizePurchase = (purchase: Purchase): Purchase => ({
   affectsInventory: purchase.affectsInventory ?? false,
   stockControl: purchase.stockControl ?? "simple",
   internalSupplyMode: purchase.internalSupplyMode ?? "expense",
+  movementType:
+    purchase.movementType ??
+    (purchase.entryType === "investment" ? "inversion" : purchase.affectsInventory ? "compra" : "operativo"),
+  category:
+    purchase.category ??
+    (purchase.entryType === "investment" ? "inversion" : purchase.affectsInventory ? "materia_prima" : "gas"),
+  unit: purchase.unit ?? "unidad",
+  amount: purchase.amount ?? purchase.total,
+  paymentMethod: purchase.paymentMethod ?? "otro",
 });
 
-const purchaseAffectsInventory = (purchase: Pick<PurchaseFormState, "itemType" | "internalSupplyMode">) =>
-  purchase.itemType === "sale_inventory" ||
-  purchase.itemType === "rotating_input" ||
-  (purchase.itemType === "internal_supply" && purchase.internalSupplyMode === "stock");
+const purchaseAffectsInventory = (purchase: Pick<PurchaseFormState, "type">) => purchase.type === "compra";
 
 const resolveStockControl = (itemType: PurchaseItemType, requestedControl: StockControlMode) =>
   itemType === "rotating_input" ? requestedControl : "simple";
@@ -313,6 +512,7 @@ export function useFinanceData() {
   const [inventory, setInventory] = useState<InventoryItem[]>([]);
   const [stockMovements, setStockMovements] = useState<StockMovement[]>([]);
   const [purchaseForm, setPurchaseForm] = useState<PurchaseFormState>(initialPurchaseForm);
+  const [editingPurchaseId, setEditingPurchaseId] = useState<string | null>(null);
   const [saleForm, setSaleForm] = useState<SaleFormState>(initialSaleForm);
   const [inventoryForm, setInventoryForm] = useState<InventoryFormState>(initialInventoryForm);
 
@@ -353,30 +553,64 @@ export function useFinanceData() {
     setToast({ tone, message });
   };
 
-  const purchasePreviewTotal = getNumericValue(purchaseForm.quantity) * getNumericValue(purchaseForm.unitPrice);
+  const purchasePreviewTotal = getNumericValue(purchaseForm.amount);
   const inventoryPreviewTotal = getNumericValue(inventoryForm.quantity) * getNumericValue(inventoryForm.unitPrice);
 
   const totals = useMemo(() => {
-    const income = sales.reduce((sum, item) => sum + getSaleNetTotal(item), 0);
-    const collectedIncome = sales.filter((item) => item.status !== "pendiente").reduce((sum, item) => sum + getSaleNetTotal(item), 0);
-    const cashIncome = sales.filter((item) => item.status === "efectivo").reduce((sum, item) => sum + getSaleNetTotal(item), 0);
-    const transferIncome = sales.filter((item) => item.status === "transferencia").reduce((sum, item) => sum + getSaleNetTotal(item), 0);
-    const pendingIncome = sales.filter((item) => item.status === "pendiente").reduce((sum, item) => sum + getSaleNetTotal(item), 0);
-    const salesCount = sales.length;
-    const expenses = purchases.reduce((sum, item) => sum + item.total, 0);
-    const purchasesCount = purchases.length;
-    const inventoryPurchaseCost = purchases
+    const controlledSales = sales.filter((item) => isWithinControlPeriod(item.date));
+    const controlledPurchases = purchases.filter((item) => isWithinControlPeriod(item.date));
+    const allTimeInvestments = purchases.filter((item) => item.movementType === "inversion" || item.entryType === "investment");
+    const allTimeExpenseMovements = purchases.filter((item) => item.movementType !== "inversion" && item.entryType !== "investment");
+    const allTimeIncome = sales.reduce((sum, item) => sum + item.total, 0);
+    const allTimeCollectedIncome = sales.filter((item) => item.status !== "pendiente").reduce((sum, item) => sum + item.total, 0);
+    const allTimePendingIncome = sales.filter((item) => item.status === "pendiente").reduce((sum, item) => sum + item.total, 0);
+    const allTimeExpenses = allTimeExpenseMovements.reduce((sum, item) => sum + (item.amount ?? item.total), 0);
+    const allTimeBusinessPurchases = allTimeExpenseMovements
+      .filter((item) => item.movementType === "compra" || item.affectsInventory)
+      .reduce((sum, item) => sum + (item.amount ?? item.total), 0);
+    const allTimeOperatingExpenses = allTimeExpenseMovements
+      .filter((item) => item.movementType === "operativo")
+      .reduce((sum, item) => sum + (item.amount ?? item.total), 0);
+    const allTimeInitialInvestment = allTimeInvestments.reduce((sum, item) => sum + (item.amount ?? item.total), 0);
+    const allTimeUtility = allTimeIncome - allTimeExpenses;
+    const allTimeSimpleProfit = allTimeCollectedIncome - allTimeBusinessPurchases - allTimeOperatingExpenses;
+    const income = controlledSales.reduce((sum, item) => sum + item.total, 0);
+    const collectedIncome = controlledSales.filter((item) => item.status !== "pendiente").reduce((sum, item) => sum + item.total, 0);
+    const cashIncome = controlledSales.reduce((sum, item) => {
+      if (item.status === "efectivo") return sum + item.total;
+      if (item.status === "mixto") return sum + (item.cashAmount ?? 0);
+      return sum;
+    }, 0);
+    const transferIncome = controlledSales.reduce((sum, item) => {
+      if (item.status === "transferencia") return sum + item.total;
+      if (item.status === "mixto") return sum + (item.transferAmount ?? 0);
+      return sum;
+    }, 0);
+    const pendingIncome = controlledSales.filter((item) => item.status === "pendiente").reduce((sum, item) => sum + item.total, 0);
+    const salesCount = controlledSales.length;
+    const investments = controlledPurchases.filter((item) => item.movementType === "inversion" || item.entryType === "investment");
+    const expenseMovements = controlledPurchases.filter((item) => item.movementType !== "inversion" && item.entryType !== "investment");
+    const expenses = expenseMovements.reduce((sum, item) => sum + (item.amount ?? item.total), 0);
+    const purchasesCount = expenseMovements.length;
+    const inventoryPurchaseCost = expenseMovements
       .filter((item) => item.affectsInventory)
-      .reduce((sum, item) => sum + item.total, 0);
-    const nonInventoryPurchaseCost = purchases
+      .reduce((sum, item) => sum + (item.amount ?? item.total), 0);
+    const nonInventoryPurchaseCost = expenseMovements
       .filter((item) => !item.affectsInventory)
-      .reduce((sum, item) => sum + item.total, 0);
-    const initialInvestment = purchases
-      .filter((item) => item.entryType === "investment")
-      .reduce((sum, item) => sum + item.total, 0);
-    const operatingExpenses = Math.max(0, expenses - initialInvestment);
-    const investmentCount = purchases.filter((item) => item.entryType === "investment").length;
-    const expenseCount = purchasesCount - investmentCount;
+      .reduce((sum, item) => sum + (item.amount ?? item.total), 0);
+    const initialInvestment = investments.reduce((sum, item) => sum + (item.amount ?? item.total), 0);
+    const operatingExpenses = expenses;
+    const investmentCount = investments.length;
+    const expenseCount = expenseMovements.length;
+    const cashExpenses = expenseMovements
+      .filter((item) => item.paymentMethod === "efectivo")
+      .reduce((sum, item) => sum + (item.amount ?? item.total), 0);
+    const debitExpenses = expenseMovements
+      .filter((item) => isDebitLikePayment(item.paymentMethod))
+      .reduce((sum, item) => sum + (item.amount ?? item.total), 0);
+    const availableCash = initialBalances.cash + cashIncome - cashExpenses;
+    const availableDebit = initialBalances.debit + transferIncome - debitExpenses;
+    const availableTotal = availableCash + availableDebit;
 
     const inventoryValue = inventory.reduce((sum, item) => sum + item.total, 0);
 
@@ -386,8 +620,8 @@ export function useFinanceData() {
     const roi = initialInvestment > 0 ? utilityTotal / initialInvestment : 0;
 
     const activityDates = new Set([
-      ...sales.map((item) => item.date),
-      ...purchases.filter((item) => item.entryType !== "investment").map((item) => item.date),
+      ...controlledSales.map((item) => item.date),
+      ...expenseMovements.map((item) => item.date),
     ]);
     const activeDays = Math.max(activityDates.size, 1);
 
@@ -548,6 +782,25 @@ export function useFinanceData() {
       cashIncome,
       transferIncome,
       pendingIncome,
+      allTimeIncome,
+      allTimeCollectedIncome,
+      allTimePendingIncome,
+      allTimeExpenses,
+      allTimeBusinessPurchases,
+      allTimeOperatingExpenses,
+      allTimeInitialInvestment,
+      allTimeUtility,
+      allTimeSimpleProfit,
+      allTimeSalesCount: sales.length,
+      allTimeMovementsCount: purchases.length,
+      cashExpenses,
+      debitExpenses,
+      availableCash,
+      availableDebit,
+      availableTotal,
+      initialCashBalance: initialBalances.cash,
+      initialDebitBalance: initialBalances.debit,
+      controlStartDate: initialBalances.controlStartDate,
       salesCount,
       expenses,
       purchasesCount,
@@ -570,8 +823,8 @@ export function useFinanceData() {
       topProductsByMargin,
       topProductsByProfit,
       weeklyStats,
-      net: collectedIncome - operatingExpenses,
-      expectedCash: collectedIncome - operatingExpenses,
+      net: availableTotal,
+      expectedCash: availableTotal,
     };
   }, [inventory, purchases, sales]);
 
@@ -580,15 +833,15 @@ export function useFinanceData() {
 
     return lastDays.map((date) => ({
       date,
-      income: sales.filter((item) => item.date === date).reduce((sum, item) => sum + getSaleNetTotal(item), 0),
+      income: sales.filter((item) => item.date === date).reduce((sum, item) => sum + item.total, 0),
       expense: purchases
-        .filter((item) => item.date === date && item.entryType !== "investment")
-        .reduce((sum, item) => sum + item.total, 0),
+        .filter((item) => item.date === date && item.movementType !== "inversion" && item.entryType !== "investment")
+        .reduce((sum, item) => sum + (item.amount ?? item.total), 0),
     }));
   }, [purchases, sales]);
 
-  const handleDelete = async (storeName: StoreName, id: string) => {
-    const confirmed = window.confirm("Se eliminara este registro del dispositivo. Quieres continuar?");
+  const handleDelete = async (storeName: StoreName, id: string, skipConfirmation = false) => {
+    const confirmed = skipConfirmation || window.confirm("Se eliminara este registro del dispositivo. Quieres continuar?");
     if (!confirmed) {
       return;
     }
@@ -681,19 +934,24 @@ export function useFinanceData() {
   const handlePurchaseSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const quantity = getNumericValue(purchaseForm.quantity);
-    const unitPrice = getNumericValue(purchaseForm.unitPrice);
+    const total = getNumericValue(purchaseForm.amount);
+    const unitPrice = quantity > 0 ? Math.round(total / quantity) : total;
     const affectsInventory = purchaseAffectsInventory(purchaseForm);
-    const stockControl = resolveStockControl(purchaseForm.itemType, purchaseForm.stockControl);
+    const itemType: PurchaseItemType = affectsInventory ? "sale_inventory" : "operating_expense";
+    const stockControl = resolveStockControl(itemType, "simple");
+    const entryType: PurchaseEntryType = purchaseForm.type === "inversion" ? "investment" : "expense";
 
-    if (!purchaseForm.detail.trim() || !purchaseForm.supplier.trim() || quantity <= 0 || unitPrice <= 0) {
-      saveFeedback("error", "Completa detalle, proveedor, cantidad y precio unitario.");
+    if (!purchaseForm.detail.trim() || quantity <= 0 || total <= 0) {
+      saveFeedback("error", "Completa detalle, cantidad y monto.");
       return;
     }
 
     const createdAt = new Date().toISOString();
-    const purchaseId = createId();
-    const stockMovementId = affectsInventory ? createId() : undefined;
-    const inventoryKey = getInventoryKey(purchaseForm.detail, purchaseForm.itemType, stockControl);
+    const existingPurchase = editingPurchaseId ? purchases.find((purchase) => purchase.id === editingPurchaseId) : undefined;
+    const purchaseId = existingPurchase?.id ?? createId();
+    const stockMovementId = existingPurchase?.stockMovementId ?? (affectsInventory && !editingPurchaseId ? createId() : undefined);
+    const movementDate = purchaseForm.date || getCurrentDate();
+    const inventoryKey = getInventoryKey(purchaseForm.detail, itemType, stockControl);
     const existingInventoryItem = affectsInventory
       ? inventory.find((item) => getInventoryKey(item.name, item.itemType, item.stockControl) === inventoryKey)
       : undefined;
@@ -701,34 +959,56 @@ export function useFinanceData() {
 
     const payload: Purchase = {
       id: purchaseId,
-      createdAt,
-      date: getCurrentDate(),
+      createdAt: existingPurchase?.createdAt ?? createdAt,
+      date: movementDate,
       detail: purchaseForm.detail.trim(),
       quantity,
-      supplier: purchaseForm.supplier.trim(),
+      supplier: purchaseForm.paymentMethod,
       unitPrice,
-      total: quantity * unitPrice,
-      entryType: "expense",
-      itemType: purchaseForm.itemType,
+      total,
+      entryType,
+      itemType,
       affectsInventory,
       stockControl,
-      internalSupplyMode: purchaseForm.internalSupplyMode,
-      inventoryItemId,
+      internalSupplyMode: "expense",
+      movementType: purchaseForm.type,
+      category: purchaseForm.category,
+      unit: purchaseForm.unit.trim() || "unidad",
+      amount: total,
+      paymentMethod: purchaseForm.paymentMethod,
+      inventoryItemId: existingPurchase?.inventoryItemId ?? inventoryItemId,
       stockMovementId,
     };
+
+    if (editingPurchaseId) {
+      try {
+        await addRecord("purchases", payload);
+        setPurchases((current) =>
+          [normalizePurchase(payload), ...current.filter((purchase) => purchase.id !== editingPurchaseId)].sort((a, b) =>
+            b.createdAt.localeCompare(a.createdAt),
+          ),
+        );
+        setPurchaseForm(initialPurchaseForm());
+        setEditingPurchaseId(null);
+        saveFeedback("success", "Movimiento actualizado correctamente.");
+      } catch (submitError) {
+        saveFeedback("error", submitError instanceof Error ? submitError.message : "No fue posible actualizar el movimiento.");
+      }
+      return;
+    }
 
     const inventoryPayload: InventoryItem | null =
       affectsInventory && inventoryItemId
         ? {
             id: inventoryItemId,
             createdAt: existingInventoryItem?.createdAt ?? createdAt,
-            date: getCurrentDate(),
+            date: movementDate,
             name: purchaseForm.detail.trim(),
             quantity: (existingInventoryItem?.quantity ?? 0) + quantity,
-            place: purchaseForm.supplier.trim(),
+            place: purchaseForm.paymentMethod,
             unitPrice,
-            total: (existingInventoryItem?.total ?? 0) + quantity * unitPrice,
-            itemType: purchaseForm.itemType,
+            total: (existingInventoryItem?.total ?? 0) + total,
+            itemType,
             stockControl,
             sourcePurchaseId: purchaseId,
             updatedAt: createdAt,
@@ -740,16 +1020,16 @@ export function useFinanceData() {
         ? {
             id: stockMovementId,
             createdAt,
-            date: getCurrentDate(),
+            date: movementDate,
             itemName: purchaseForm.detail.trim(),
-            itemType: purchaseForm.itemType,
+            itemType,
             movementType: "entry",
             quantity,
             unitCost: unitPrice,
-            total: quantity * unitPrice,
+            total,
             sourceType: "purchase",
             sourceId: purchaseId,
-            supplier: purchaseForm.supplier.trim(),
+            supplier: purchaseForm.paymentMethod,
             stockControl,
           }
         : null;
@@ -777,10 +1057,10 @@ export function useFinanceData() {
         "success",
         affectsInventory
           ? "Compra guardada con entrada de stock y existencias actualizadas."
-          : "Compra guardada como gasto sin afectar inventario.",
+          : "Movimiento guardado sin afectar inventario.",
       );
     } catch (submitError) {
-      saveFeedback("error", submitError instanceof Error ? submitError.message : "No fue posible guardar la compra.");
+      saveFeedback("error", submitError instanceof Error ? submitError.message : "No fue posible guardar el movimiento.");
     }
   };
 
@@ -855,6 +1135,7 @@ export function useFinanceData() {
     deliveryType,
     deliveryAddress,
     deliveryFee,
+    deliveryPaymentMethod,
     discountAmount,
     fulfillmentTime,
     orderItems,
@@ -867,6 +1148,7 @@ export function useFinanceData() {
     deliveryType: DeliveryType;
     deliveryAddress?: string;
     deliveryFee?: number;
+    deliveryPaymentMethod?: DeliveryPaymentMethod;
     discountAmount?: number;
     fulfillmentTime?: string;
     orderItems: SaleOrderItem[];
@@ -889,6 +1171,7 @@ export function useFinanceData() {
       deliveryType,
       deliveryAddress: deliveryAddress?.trim(),
       deliveryFee,
+      deliveryPaymentMethod: deliveryType === "delivery" ? deliveryPaymentMethod : undefined,
       discountAmount,
       fulfillmentTime: fulfillmentTime?.trim(),
       quantity,
@@ -925,7 +1208,7 @@ export function useFinanceData() {
     }
   };
 
-  const updateSaleStatus = async (id: string, status: SaleStatus) => {
+  const updateSaleStatus = async (id: string, status: SaleStatus, paymentAmounts?: { cashAmount?: number; transferAmount?: number }) => {
     const sale = sales.find((item) => item.id === id);
 
     if (!sale) {
@@ -936,6 +1219,8 @@ export function useFinanceData() {
     const updatedSale: Sale = {
       ...sale,
       status,
+      cashAmount: status === "mixto" ? paymentAmounts?.cashAmount ?? 0 : undefined,
+      transferAmount: status === "mixto" ? paymentAmounts?.transferAmount ?? 0 : undefined,
     };
 
     try {
@@ -949,7 +1234,10 @@ export function useFinanceData() {
 
   const updateSaleDetails = async (
     id: string,
-    updates: Pick<Sale, "client" | "detail" | "deliveryType" | "deliveryAddress" | "deliveryFee" | "fulfillmentTime">,
+    updates: Pick<
+      Sale,
+      "client" | "detail" | "deliveryType" | "deliveryAddress" | "deliveryFee" | "deliveryPaymentMethod" | "fulfillmentTime"
+    >,
   ) => {
     const sale = sales.find((item) => item.id === id);
 
@@ -965,6 +1253,7 @@ export function useFinanceData() {
       deliveryType: updates.deliveryType,
       deliveryAddress: updates.deliveryAddress?.trim(),
       deliveryFee: updates.deliveryFee,
+      deliveryPaymentMethod: updates.deliveryType === "delivery" ? updates.deliveryPaymentMethod : undefined,
       fulfillmentTime: updates.fulfillmentTime?.trim(),
     };
 
@@ -1033,7 +1322,7 @@ export function useFinanceData() {
     downloadFile(`ventas-${getCurrentDate()}.csv`, salesRowsToCsv(sales), "text/csv;charset=utf-8");
   };
 
-  const importPurchasesCsv = async (csvContent: string, entryType: Purchase["entryType"]) => {
+  const importPurchasesCsv = async (csvContent: string) => {
     try {
       csvContent = csvContent.replace(/^\ufeff/, "");
       const lines = csvContent
@@ -1049,14 +1338,18 @@ export function useFinanceData() {
       const header = parseCsvLine(lines[0]).map(normalizeCsvHeader);
       const dateIndex = header.indexOf("FECHA");
       const detailIndex = header.indexOf("DETALLE");
-      const quantityIndex = header.indexOf("CANTIDAD");
-      const supplierIndex = header.indexOf("LUGAR");
+      const packageIndex = header.indexOf("PAQUETE");
+      const unitIndex = header.indexOf("UNIDAD");
+      const placeIndex = header.indexOf("LUGAR");
+      const paymentMethodIndex = header.indexOf("FORMA PAGO");
       const unitPriceIndex = header.indexOf("PRECIO");
+      const totalIndex = header.indexOf("TOTAL");
+      const categoryIndex = header.indexOf("CATEGORIA");
 
-      if ([dateIndex, detailIndex, quantityIndex, supplierIndex, unitPriceIndex].some((index) => index === -1)) {
+      if ([dateIndex, detailIndex, totalIndex, categoryIndex].some((index) => index === -1)) {
         saveFeedback(
           "error",
-          "El formato del CSV no es válido. Debe incluir al menos FECHA, DETALLE, Cantidad, LUGAR y PRECIO.",
+          "El formato del CSV no es válido. Debe incluir al menos FECHA, DETALLE, TOTAL y CATEGORIA.",
         );
         return;
       }
@@ -1066,39 +1359,57 @@ export function useFinanceData() {
         const parts = parseCsvLine(lines[i]).map((part) => part.replace(/^"|"$/g, "").trim());
         const date = parsePurchaseDate(parts[dateIndex] ?? "");
         const detail = (parts[detailIndex] ?? "").trim();
-        const supplier = (parts[supplierIndex] ?? "").trim();
-        const quantity = Number.parseFloat((parts[quantityIndex] ?? "").replace(",", "."));
-        const unitPrice = parseCurrencyValue(parts[unitPriceIndex] ?? "");
+        const packageQuantity = packageIndex === -1 ? 0 : Number.parseFloat((parts[packageIndex] ?? "").replace(",", "."));
+        const unitQuantity = unitIndex === -1 ? 0 : Number.parseFloat((parts[unitIndex] ?? "").replace(",", "."));
+        const quantity = Number.isFinite(packageQuantity) && packageQuantity > 0
+          ? packageQuantity
+          : Number.isFinite(unitQuantity) && unitQuantity > 0
+            ? unitQuantity
+            : 1;
+        const total = parseCurrencyValue(parts[totalIndex] ?? "");
+        const csvUnitPrice = unitPriceIndex === -1 ? NaN : parseCurrencyValue(parts[unitPriceIndex] ?? "");
 
-        if (!date || !detail || !supplier || !Number.isFinite(quantity) || quantity <= 0 || isNaN(unitPrice) || unitPrice <= 0) {
+        if (!date || !detail || !Number.isFinite(quantity) || quantity <= 0 || isNaN(total) || total <= 0) {
           continue;
         }
 
+        const movementType = resolveMovementType(parts[categoryIndex] ?? "");
+        const category = resolveMovementCategory(detail, movementType);
+        const paymentMethod = paymentMethodIndex === -1 ? "otro" : parseMovementPaymentMethod(parts[paymentMethodIndex] ?? "");
+        const unitRaw = unitIndex === -1 ? "" : (parts[unitIndex] ?? "").trim();
+        const unitPrice = Number.isFinite(csvUnitPrice) && csvUnitPrice > 0 ? csvUnitPrice : Math.round(total / quantity);
+
         const purchase: Purchase = {
           id: createId(),
-          createdAt: new Date().toISOString(),
+          createdAt: createSaleCreatedAt(date),
           date,
           detail: detail.toUpperCase(),
           quantity,
-          supplier: supplier.toUpperCase(),
+          supplier: placeIndex === -1 ? paymentMethod : (parts[placeIndex] || paymentMethod).toUpperCase(),
           unitPrice,
-          total: quantity * unitPrice,
-          entryType,
+          total,
+          entryType: movementType === "inversion" ? "investment" : "expense",
+          itemType: movementType === "compra" ? "sale_inventory" : "operating_expense",
+          affectsInventory: movementType === "compra",
+          stockControl: "simple",
+          internalSupplyMode: "expense",
+          movementType,
+          category,
+          unit: unitRaw ? `${unitRaw} unidad` : "unidad",
+          amount: total,
+          paymentMethod,
         };
         newPurchases.push(purchase);
       }
 
       if (newPurchases.length === 0) {
-        saveFeedback("error", "No se encontraron compras válidas en el CSV.");
+        saveFeedback("error", "No se encontraron movimientos válidos en el CSV.");
         return;
       }
 
       await Promise.all(newPurchases.map((purchase) => addRecord("purchases", purchase)));
       setPurchases((current) => [...newPurchases.map(normalizePurchase), ...current].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
-      saveFeedback(
-        "success",
-        `Se importaron ${newPurchases.length} compras como ${entryType === "investment" ? "inversion inicial" : "gasto"}.`,
-      );
+      saveFeedback("success", `Se importaron ${newPurchases.length} movimientos correctamente.`);
     } catch {
       saveFeedback("error", "Error al importar el CSV.");
     }
@@ -1121,17 +1432,29 @@ export function useFinanceData() {
       const dateIndex = header.indexOf("FECHA");
       const clientIndex = header.indexOf("CLIENTE");
       const countIndex = header.indexOf("CANT");
+      const exportedOrderIndex = header.indexOf("PEDIDO");
       const productIndex = header.indexOf("PRODUCTO");
-      const detailIndex = header.indexOf("DETALLE DE PEDIDO");
+      const detailIndex = header.includes("DETALLE DE PEDIDO") ? header.indexOf("DETALLE DE PEDIDO") : header.indexOf("DETALLE");
+      const deliveryTypeIndex = header.indexOf("ENTREGA");
+      const deliveryAddressIndex = header.indexOf("DIRECCION");
+      const fulfillmentTimeIndex = header.indexOf("HORA ENTREGA");
+      const deliveryFeeIndex = header.indexOf("DELIVERY");
+      const deliveryPaymentMethodIndex = header.indexOf("PAGO_DELIVERY");
+      const discountIndex = header.indexOf("DESCUENTO");
       const totalIndex = header.indexOf("TOTAL");
+      const collectedTotalIndex = header.indexOf("TOTAL_COBRADO");
+      const cashAmountIndex = header.indexOf("PAGO_EFECTIVO");
+      const transferAmountIndex = header.indexOf("PAGO_DEBITO");
       const statusIndex = header.indexOf("ESTADO");
 
       const hasLegacyDetail = detailIndex !== -1 && productIndex === -1;
       const hasProductDetail = productIndex !== -1 && detailIndex !== -1;
+      const hasExportedDetail = exportedOrderIndex !== -1;
 
       if (
-        [dateIndex, clientIndex, totalIndex, statusIndex].some((index) => index === -1) ||
-        (!hasLegacyDetail && !hasProductDetail)
+        [dateIndex, clientIndex, statusIndex].some((index) => index === -1) ||
+        (totalIndex === -1 && collectedTotalIndex === -1) ||
+        (!hasLegacyDetail && !hasProductDetail && !hasExportedDetail)
       ) {
         saveFeedback(
           "error",
@@ -1143,6 +1466,7 @@ export function useFinanceData() {
       const parseStatus = (raw: string) => {
         const status = normalizeCsvHeader(raw);
         if (status.includes("PENDIENTE")) return "pendiente";
+        if (status.includes("MIXTO")) return "mixto";
         if (status.includes("EFECTIVO")) return "efectivo";
         if (status.includes("TRANSFER") || status.includes("DEBITO") || status.includes("TRANSF")) return "transferencia";
         return "transferencia";
@@ -1152,25 +1476,47 @@ export function useFinanceData() {
 
       for (let i = 1; i < lines.length; i++) {
         const parts = parseCsvLine(lines[i]).map((part) => part.replace(/^"|"$/g, "").trim());
-        const date = parsePurchaseDate(parts[dateIndex] ?? "");
+        const date = parseSaleDate(parts[dateIndex] ?? "");
         const client = (parts[clientIndex] ?? "").trim();
         const product = productIndex === -1 ? "" : (parts[productIndex] ?? "").trim();
+        const orderText = exportedOrderIndex === -1 ? "" : (parts[exportedOrderIndex] ?? "").trim();
         const extraDetail = detailIndex === -1 ? "" : (parts[detailIndex] ?? "").trim();
-        const total = parseCurrencyValue(parts[totalIndex] ?? "");
-        const detail = [product, extraDetail].filter(Boolean).join(" · ");
+        const netTotal = totalIndex === -1 ? 0 : getOptionalCurrencyValue(parts[totalIndex] ?? "");
+        const collectedTotal = collectedTotalIndex === -1 ? 0 : getOptionalCurrencyValue(parts[collectedTotalIndex] ?? "");
+        const deliveryFee = deliveryFeeIndex === -1 ? 0 : getOptionalCurrencyValue(parts[deliveryFeeIndex] ?? "");
+        const discountAmount = discountIndex === -1 ? 0 : getOptionalCurrencyValue(parts[discountIndex] ?? "");
+        const cashAmount = cashAmountIndex === -1 ? undefined : getOptionalCurrencyValue(parts[cashAmountIndex] ?? "");
+        const transferAmount = transferAmountIndex === -1 ? undefined : getOptionalCurrencyValue(parts[transferAmountIndex] ?? "");
+        const total = collectedTotal > 0 ? collectedTotal : netTotal + deliveryFee;
+        const detail = [orderText || product, extraDetail].filter(Boolean).join(" · ");
+        const deliveryType = deliveryTypeIndex === -1 ? (deliveryFee > 0 ? "delivery" : "retiro") : parseDeliveryType(parts[deliveryTypeIndex] ?? "");
+        const quantity = Number.parseFloat((parts[countIndex] ?? "1").replace(",", ".")) || 1;
+        const orderItems = hasExportedDetail ? parseExportedOrderItems(orderText, Math.max(0, netTotal)) : undefined;
 
         if (!date || !detail || isNaN(total) || total <= 0) continue;
 
         const sale: Sale = {
           id: createId(),
-          createdAt: new Date().toISOString(),
+          createdAt: createSaleCreatedAt(date),
           date,
           client: client.toUpperCase(),
           detail: detail.toUpperCase(),
           total,
           status: parseStatus(parts[statusIndex] ?? ""),
-          quantity: Number.parseFloat((parts[countIndex] ?? "1").replace(",", ".")) || 1,
-          productName: product || detail,
+          cashAmount,
+          transferAmount,
+          quantity: orderItems?.reduce((totalItems, item) => totalItems + item.quantity, 0) || quantity,
+          productName: product || orderText || detail,
+          deliveryType,
+          deliveryAddress: deliveryAddressIndex === -1 ? "" : (parts[deliveryAddressIndex] ?? "").trim(),
+          deliveryFee: deliveryType === "delivery" ? deliveryFee : undefined,
+          deliveryPaymentMethod:
+            deliveryType === "delivery" && deliveryPaymentMethodIndex !== -1
+              ? parseDeliveryPaymentMethod(parts[deliveryPaymentMethodIndex] ?? "")
+              : undefined,
+          discountAmount,
+          fulfillmentTime: fulfillmentTimeIndex === -1 ? "" : (parts[fulfillmentTimeIndex] ?? "").trim(),
+          orderItems,
         };
 
         newSales.push(sale);
@@ -1193,6 +1539,26 @@ export function useFinanceData() {
     downloadFile(`inventario-${getCurrentDate()}.csv`, inventoryRowsToCsv(inventory), "text/csv;charset=utf-8");
   };
 
+  const startEditPurchase = (purchase: Purchase) => {
+    const normalizedPurchase = normalizePurchase(purchase);
+    setEditingPurchaseId(normalizedPurchase.id);
+    setPurchaseForm({
+      type: normalizedPurchase.movementType ?? "compra",
+      category: normalizedPurchase.category ?? "materia_prima",
+      detail: normalizedPurchase.detail,
+      quantity: String(normalizedPurchase.quantity),
+      unit: normalizedPurchase.unit ?? "unidad",
+      amount: String(normalizedPurchase.amount ?? normalizedPurchase.total),
+      paymentMethod: normalizedPurchase.paymentMethod ?? "otro",
+      date: normalizedPurchase.date,
+    });
+  };
+
+  const cancelEditPurchase = () => {
+    setEditingPurchaseId(null);
+    setPurchaseForm(initialPurchaseForm());
+  };
+
   return {
     loading,
     error,
@@ -1203,6 +1569,7 @@ export function useFinanceData() {
     stockMovements,
     purchaseForm,
     setPurchaseForm,
+    editingPurchaseId,
     saleForm,
     setSaleForm,
     inventoryForm,
@@ -1213,6 +1580,8 @@ export function useFinanceData() {
     chartData,
     handleDelete,
     handlePurchaseSubmit,
+    startEditPurchase,
+    cancelEditPurchase,
     handleSaleSubmit,
     addSaleFromOrder,
     updateSaleStatus,

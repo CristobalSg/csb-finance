@@ -3,18 +3,21 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { PaginationControls } from "../components/common/PaginationControls";
 import { TableEmpty } from "../components/common/TableEmpty";
-import { PrintIcon, XIcon } from "../components/icons";
-import { saleStatusLabels, shellCardClass } from "../constants/app";
+import { DotsIcon, PaymentIcon, PrintIcon, XIcon } from "../components/icons";
+import { deliveryPaymentMethodLabels, saleStatusLabels, shellCardClass } from "../constants/app";
 import { familyComboDescriptions } from "../data/order-menu";
 import { formatShortDate } from "../lib/date";
 import { formatCurrency, formatNumber } from "../lib/format";
-import { setupReceiptPrintPage, type ReceiptPaperSize } from "../lib/receipt-print";
 import { getSaleDeliveryFee, getSaleDiscountAmount, getSaleNetTotal } from "../lib/sales";
-import type { DeliveryType, Sale, SaleOrderItem, SaleStatus } from "../types";
+import { printTicket } from "../lib/thermal-printer";
+import { buildDailyReportTicketData, buildTicketData, type ReceiptPaperSize } from "../lib/thermal-ticket";
+import type { DeliveryPaymentMethod, DeliveryType, Sale, SaleOrderItem, SaleStatus } from "../types";
 
 const HISTORY_PAGE_SIZE = 8;
 const DAILY_REPORT_START_HOUR = 13;
 const DAILY_REPORT_END_HOUR = 2;
+
+type SalesReportPeriod = "daily" | "weekly" | "monthly";
 
 const defaultReceiptPrintSections = {
   kitchen: true,
@@ -30,7 +33,10 @@ const receiptPrintSectionOptions: { key: ReceiptPrintSection; label: string }[] 
   { key: "thanks", label: "Gracias" },
 ];
 
-type SaleUpdateInput = Pick<Sale, "client" | "detail" | "deliveryType" | "deliveryAddress" | "deliveryFee" | "fulfillmentTime">;
+type SaleUpdateInput = Pick<
+  Sale,
+  "client" | "detail" | "deliveryType" | "deliveryAddress" | "deliveryFee" | "deliveryPaymentMethod" | "fulfillmentTime"
+>;
 
 type SaleEditForm = {
   client: string;
@@ -38,6 +44,7 @@ type SaleEditForm = {
   deliveryType: DeliveryType;
   deliveryAddress: string;
   deliveryFee: string;
+  deliveryPaymentMethod: DeliveryPaymentMethod;
   fulfillmentTime: string;
 };
 
@@ -70,6 +77,39 @@ const getDailyReportRange = (date: string) => {
   return { start, end };
 };
 
+const getWeeklyReportRange = (date: string) => {
+  const selectedDate = createLocalDateTime(date, 0);
+  const mondayOffset = (selectedDate.getDay() + 6) % 7;
+  const start = createLocalDateTime(date, 0);
+  start.setDate(selectedDate.getDate() - mondayOffset);
+  const end = new Date(start);
+  end.setDate(start.getDate() + 7);
+
+  return { start, end };
+};
+
+const getMonthlyReportRange = (date: string) => {
+  const [year, month] = date.split("-").map(Number);
+  const start = new Date(year, month - 1, 1, 0, 0, 0, 0);
+  const end = new Date(year, month, 1, 0, 0, 0, 0);
+
+  return { start, end };
+};
+
+const getSalesReportRange = (period: SalesReportPeriod, date: string) => {
+  if (period === "weekly") return getWeeklyReportRange(date);
+  if (period === "monthly") return getMonthlyReportRange(date);
+  return getDailyReportRange(date);
+};
+
+const salesReportPeriodLabels: Record<SalesReportPeriod, string> = {
+  daily: "Diario",
+  weekly: "Semanal",
+  monthly: "Mensual",
+};
+
+const getSalesReportTitle = (period: SalesReportPeriod) => `Cierre ${salesReportPeriodLabels[period].toLowerCase()}`;
+
 const formatReportDateTime = (date: Date) =>
   date.toLocaleString("es-CL", {
     day: "2-digit",
@@ -78,9 +118,9 @@ const formatReportDateTime = (date: Date) =>
     minute: "2-digit",
   });
 
-const isSaleInDailyReportRange = (sale: Sale, date: string) => {
+const isSaleInReportRange = (sale: Sale, period: SalesReportPeriod, date: string) => {
   const createdAt = new Date(sale.createdAt);
-  const { start, end } = getDailyReportRange(date);
+  const { start, end } = getSalesReportRange(period, date);
   return createdAt >= start && createdAt < end;
 };
 
@@ -97,6 +137,23 @@ const formatSaleOrderItems = (sale: Sale) => {
       total: getSaleNetTotal(sale),
     },
   ] satisfies SaleOrderItem[];
+};
+
+const getProductSalesStats = (sales: Sale[]) => {
+  const products = new Map<string, { name: string; quantity: number; total: number }>();
+
+  for (const sale of sales) {
+    for (const item of formatSaleOrderItems(sale)) {
+      const existing = products.get(item.name) ?? { name: item.name, quantity: 0, total: 0 };
+      products.set(item.name, {
+        ...existing,
+        quantity: existing.quantity + item.quantity,
+        total: existing.total + item.total,
+      });
+    }
+  }
+
+  return Array.from(products.values()).sort((first, second) => second.quantity - first.quantity || second.total - first.total);
 };
 
 const truncateText = (text: string, maxLength = 42) => {
@@ -184,7 +241,7 @@ export function SalesSection({
   loading: boolean;
   sales: Sale[];
   onDelete: (id: string) => void;
-  onUpdateStatus: (id: string, status: SaleStatus) => void;
+  onUpdateStatus: (id: string, status: SaleStatus, paymentAmounts?: { cashAmount?: number; transferAmount?: number }) => void;
   onUpdateSale: (id: string, updates: SaleUpdateInput) => void;
   onExport: () => void;
   onImport: (csvContent: string) => void;
@@ -196,15 +253,21 @@ export function SalesSection({
   const [receiptPrintSections, setReceiptPrintSections] = useState(defaultReceiptPrintSections);
   const [receiptPaperSize, setReceiptPaperSize] = useState<ReceiptPaperSize>("80mm");
   const [dailyReportDate, setDailyReportDate] = useState(getDateInputValue);
+  const [salesReportPeriod, setSalesReportPeriod] = useState<SalesReportPeriod>("daily");
   const [dailyReportPaperSize, setDailyReportPaperSize] = useState<ReceiptPaperSize>("56mm");
   const [isDailyReportOpen, setIsDailyReportOpen] = useState(false);
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
+  const [paymentSale, setPaymentSale] = useState<Sale | null>(null);
+  const [actionsSaleId, setActionsSaleId] = useState<string | null>(null);
+  const [mixedCashAmount, setMixedCashAmount] = useState("");
+  const [mixedTransferAmount, setMixedTransferAmount] = useState("");
   const [saleEditForm, setSaleEditForm] = useState<SaleEditForm>({
     client: "",
     detail: "",
     deliveryType: "retiro",
     deliveryAddress: "",
     deliveryFee: "",
+    deliveryPaymentMethod: "efectivo",
     fulfillmentTime: "",
   });
 
@@ -248,6 +311,7 @@ export function SalesSection({
       deliveryType: sale.deliveryType ?? "retiro",
       deliveryAddress: sale.deliveryAddress ?? "",
       deliveryFee: sale.deliveryFee ? String(sale.deliveryFee) : "",
+      deliveryPaymentMethod: sale.deliveryPaymentMethod ?? "efectivo",
       fulfillmentTime: sale.fulfillmentTime ?? "",
     });
   };
@@ -260,8 +324,89 @@ export function SalesSection({
       deliveryType: "retiro",
       deliveryAddress: "",
       deliveryFee: "",
+      deliveryPaymentMethod: "efectivo",
       fulfillmentTime: "",
     });
+  };
+
+  const closePaymentModal = () => {
+    setPaymentSale(null);
+    setMixedCashAmount("");
+    setMixedTransferAmount("");
+  };
+
+  const openPaymentModal = (sale: Sale) => {
+    setActionsSaleId(null);
+    setPaymentSale(sale);
+    setMixedCashAmount(sale.cashAmount ? String(sale.cashAmount) : "");
+    setMixedTransferAmount(sale.transferAmount ? String(sale.transferAmount) : "");
+  };
+
+  const getClampedPaymentAmount = (rawValue: string, saleTotal: number) => {
+    const numericValue = Number.parseInt(rawValue.replace(/\D/g, ""), 10) || 0;
+    return Math.min(numericValue, saleTotal);
+  };
+
+  const handleMixedCashChange = (rawValue: string) => {
+    if (!paymentSale) {
+      return;
+    }
+
+    const saleTotal = getSaleNetTotal(paymentSale);
+    const cashAmount = getClampedPaymentAmount(rawValue, saleTotal);
+    setMixedCashAmount(cashAmount > 0 ? String(cashAmount) : "");
+    setMixedTransferAmount(String(saleTotal - cashAmount));
+  };
+
+  const handleMixedTransferChange = (rawValue: string) => {
+    if (!paymentSale) {
+      return;
+    }
+
+    const saleTotal = getSaleNetTotal(paymentSale);
+    const transferAmount = getClampedPaymentAmount(rawValue, saleTotal);
+    setMixedTransferAmount(transferAmount > 0 ? String(transferAmount) : "");
+    setMixedCashAmount(String(saleTotal - transferAmount));
+  };
+
+  const handleDirectPayment = (status: Extract<SaleStatus, "efectivo" | "transferencia">) => {
+    if (!paymentSale) {
+      return;
+    }
+
+    onUpdateStatus(paymentSale.id, status);
+    closePaymentModal();
+  };
+
+  const updateSaleEditDeliveryType = (nextDeliveryType: DeliveryType) => {
+    setSaleEditForm((current) => ({
+      ...current,
+      deliveryType: nextDeliveryType,
+      deliveryFee: nextDeliveryType === "delivery" ? current.deliveryFee || "2500" : current.deliveryFee,
+    }));
+  };
+
+  const handleMixedPayment = () => {
+    if (!paymentSale) {
+      return;
+    }
+
+    const cashAmount = Number.parseInt(mixedCashAmount, 10) || 0;
+    const transferAmount = Number.parseInt(mixedTransferAmount, 10) || 0;
+    const saleTotal = getSaleNetTotal(paymentSale);
+
+    if (cashAmount <= 0 || transferAmount <= 0) {
+      window.alert("Ingresa monto en efectivo y monto debito/transferencia.");
+      return;
+    }
+
+    if (cashAmount + transferAmount !== saleTotal) {
+      window.alert(`El pago mixto debe sumar ${formatCurrency(saleTotal)}.`);
+      return;
+    }
+
+    onUpdateStatus(paymentSale.id, "mixto", { cashAmount, transferAmount });
+    closePaymentModal();
   };
 
   const handleSaveSaleEdit = () => {
@@ -277,6 +422,7 @@ export function SalesSection({
       deliveryType: saleEditForm.deliveryType,
       deliveryAddress: saleEditForm.deliveryType === "delivery" ? saleEditForm.deliveryAddress : "",
       deliveryFee,
+      deliveryPaymentMethod: saleEditForm.deliveryType === "delivery" ? saleEditForm.deliveryPaymentMethod : undefined,
       fulfillmentTime: saleEditForm.fulfillmentTime,
     });
     closeEditSale();
@@ -288,7 +434,7 @@ export function SalesSection({
     setReceiptPaperSize("80mm");
   };
 
-  const handleReprintReceipt = () => {
+  const handleReprintReceipt = async () => {
     if (!receiptSale) {
       return;
     }
@@ -298,38 +444,57 @@ export function SalesSection({
       return;
     }
 
-    window.setTimeout(() => {
-      const cleanup = () => {
-        document.body.classList.remove("printing-receipt");
-        window.removeEventListener("afterprint", cleanup);
-        removeReceiptPageStyle();
-        closeReprintReceipt();
-      };
-
-      const removeReceiptPageStyle = setupReceiptPrintPage(receiptPaperSize);
-      document.body.classList.add("printing-receipt");
-      window.addEventListener("afterprint", cleanup, { once: true });
-      window.print();
-      window.setTimeout(cleanup, 500);
-    }, 0);
+    try {
+      await printTicket(
+        buildTicketData({
+          paperSize: receiptPaperSize,
+          sections: receiptPrintSections,
+          createdAt: receiptSale.createdAt,
+          client: receiptSale.client,
+          detail: receiptSale.detail,
+          paymentLabel: saleStatusLabels[receiptSale.status],
+          deliveryType: receiptSale.deliveryType ?? "retiro",
+          deliveryAddress: receiptSale.deliveryAddress,
+          deliveryFee: getSaleDeliveryFee(receiptSale),
+          deliveryPaymentMethod: receiptSale.deliveryPaymentMethod,
+          discountAmount: getSaleDiscountAmount(receiptSale),
+          fulfillmentTime: receiptSale.fulfillmentTime,
+          items: receiptItems,
+          productTotal: receiptProductTotal,
+          total: receiptSale.total,
+        }),
+      );
+      closeReprintReceipt();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "No fue posible reimprimir el ticket ESC/POS.");
+    }
   };
 
   const receiptItems = receiptSale ? formatSaleOrderItems(receiptSale) : [];
   const receiptProductTotal = receiptItems.reduce((total, item) => total + item.total, 0);
   const kitchenGroups = getKitchenGroups(receiptItems);
   const kitchenSummary = getKitchenSummary(receiptItems);
-  const dailyReportRange = getDailyReportRange(dailyReportDate);
+  const dailyReportRange = getSalesReportRange(salesReportPeriod, dailyReportDate);
   const dailyReportSales = useMemo(
     () =>
       sales
-        .filter((sale) => isSaleInDailyReportRange(sale, dailyReportDate))
+        .filter((sale) => isSaleInReportRange(sale, salesReportPeriod, dailyReportDate))
         .sort((first, second) => first.createdAt.localeCompare(second.createdAt)),
-    [dailyReportDate, sales],
+    [dailyReportDate, sales, salesReportPeriod],
   );
+  const dailyReportProductStats = useMemo(() => getProductSalesStats(dailyReportSales), [dailyReportSales]);
   const dailyReportTotals = useMemo(
     () => ({
-      efectivo: dailyReportSales.filter((sale) => sale.status === "efectivo").reduce((total, sale) => total + getSaleNetTotal(sale), 0),
-      debito: dailyReportSales.filter((sale) => sale.status === "transferencia").reduce((total, sale) => total + getSaleNetTotal(sale), 0),
+      efectivo: dailyReportSales.reduce((total, sale) => {
+        if (sale.status === "efectivo") return total + getSaleNetTotal(sale);
+        if (sale.status === "mixto") return total + (sale.cashAmount ?? 0);
+        return total;
+      }, 0),
+      debito: dailyReportSales.reduce((total, sale) => {
+        if (sale.status === "transferencia") return total + getSaleNetTotal(sale);
+        if (sale.status === "mixto") return total + (sale.transferAmount ?? 0);
+        return total;
+      }, 0),
       pendiente: dailyReportSales.filter((sale) => sale.status === "pendiente").reduce((total, sale) => total + getSaleNetTotal(sale), 0),
       delivery: dailyReportSales.reduce((total, sale) => total + getSaleDeliveryFee(sale), 0),
       total: dailyReportSales.reduce((total, sale) => total + getSaleNetTotal(sale), 0),
@@ -337,31 +502,52 @@ export function SalesSection({
     [dailyReportSales],
   );
 
-  const handlePrintDailyReport = () => {
-    const removeReceiptPageStyle = setupReceiptPrintPage(dailyReportPaperSize);
-    document.body.classList.add("printing-receipt");
-    window.addEventListener(
-      "afterprint",
-      () => {
-        document.body.classList.remove("printing-receipt");
-        removeReceiptPageStyle();
-      },
-      { once: true },
-    );
-    window.print();
-    window.setTimeout(() => {
-      document.body.classList.remove("printing-receipt");
-      removeReceiptPageStyle();
-    }, 500);
+  const handlePrintDailyReport = async () => {
+    try {
+      await printTicket(
+        buildDailyReportTicketData({
+          paperSize: dailyReportPaperSize,
+          title: getSalesReportTitle(salesReportPeriod),
+          dateRange: `${formatReportDateTime(dailyReportRange.start)} a ${formatReportDateTime(dailyReportRange.end)}`,
+          salesCount: dailyReportSales.length,
+          cashTotal: dailyReportTotals.efectivo,
+          cardTotal: dailyReportTotals.debito,
+          pendingTotal: dailyReportTotals.pendiente,
+          deliveryTotal: dailyReportTotals.delivery,
+          totalCollected: dailyReportTotals.efectivo + dailyReportTotals.debito,
+          totalSales: dailyReportTotals.total,
+          sales:
+            salesReportPeriod === "daily"
+              ? dailyReportSales.map((sale) => ({
+                  time: new Date(sale.createdAt).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" }),
+                  client: sale.client,
+                  total: getSaleNetTotal(sale),
+                  status: saleStatusLabels[sale.status],
+                  deliveryFee: getSaleDeliveryFee(sale),
+                }))
+              : undefined,
+          productStats:
+            salesReportPeriod === "daily"
+              ? undefined
+              : dailyReportProductStats.map((product) => ({
+                  name: product.name,
+                  quantity: product.quantity,
+                  total: product.total,
+                })),
+        }),
+      );
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "No fue posible imprimir el cierre ESC/POS.");
+    }
   };
 
   return (
     <section id="ventas" className="flex h-full min-h-0 flex-col space-y-4">
       {isDailyReportOpen ? (
-        <div data-receipt-print className="pointer-events-none fixed left-[-9999px] top-0">
+        <div data-receipt-preview-source aria-hidden="true" className="pointer-events-none fixed left-[-9999px] top-0">
           <div className="receipt-paper">
             <div className="text-center">
-              <p className="text-xs font-black uppercase">Cierre diario</p>
+              <p className="text-xs font-black uppercase">{getSalesReportTitle(salesReportPeriod)}</p>
               <p className="mt-1 text-[11px] font-bold">Ceese Burger's</p>
               <p className="mt-2 text-xs font-bold">
                 {formatReportDateTime(dailyReportRange.start)} a {formatReportDateTime(dailyReportRange.end)}
@@ -404,7 +590,7 @@ export function SalesSection({
               <span className="shrink-0">{formatCurrency(dailyReportTotals.total)}</span>
             </div>
 
-            {dailyReportSales.length > 0 ? (
+            {salesReportPeriod === "daily" && dailyReportSales.length > 0 ? (
               <>
                 <div className="my-3 border-t border-dashed border-black" />
                 <div className="space-y-2">
@@ -426,12 +612,31 @@ export function SalesSection({
                 </div>
               </>
             ) : null}
+
+            {salesReportPeriod !== "daily" && dailyReportProductStats.length > 0 ? (
+              <>
+                <div className="my-3 border-t border-dashed border-black" />
+                <p className="mb-2 text-xs font-black uppercase">Productos vendidos</p>
+                <div className="space-y-2">
+                  {dailyReportProductStats.map((product) => (
+                    <div key={product.name} className="receipt-cut text-xs font-semibold">
+                      <div className="flex justify-between gap-2">
+                        <span>
+                          {formatNumber(product.quantity)} x {product.name}
+                        </span>
+                        <span className="shrink-0">{formatCurrency(product.total)}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : null}
           </div>
         </div>
       ) : null}
 
       {receiptSale ? (
-        <div data-receipt-print className="pointer-events-none fixed left-[-9999px] top-0">
+        <div data-receipt-preview-source aria-hidden="true" className="pointer-events-none fixed left-[-9999px] top-0">
           {receiptPrintSections.kitchen ? (
           <div className="receipt-paper">
             <div className="text-center">
@@ -447,6 +652,9 @@ export function SalesSection({
               <p>Entrega: {receiptSale.deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
               {receiptSale.deliveryType === "delivery" && receiptSale.deliveryAddress?.trim() ? (
                 <p>Direccion: {receiptSale.deliveryAddress.trim()}</p>
+              ) : null}
+              {receiptSale.deliveryType === "delivery" && receiptSale.deliveryPaymentMethod ? (
+                <p>Pago delivery: {deliveryPaymentMethodLabels[receiptSale.deliveryPaymentMethod]}</p>
               ) : null}
               {receiptSale.detail.trim() ? <p>Nota: {receiptSale.detail.trim()}</p> : null}
             </div>
@@ -521,6 +729,9 @@ export function SalesSection({
                 <p>Direccion: {receiptSale.deliveryAddress.trim()}</p>
               ) : null}
               {receiptSale.deliveryType === "delivery" ? <p>Valor delivery: {formatCurrency(receiptSale.deliveryFee ?? 0)}</p> : null}
+              {receiptSale.deliveryType === "delivery" && receiptSale.deliveryPaymentMethod ? (
+                <p>Pago delivery: {deliveryPaymentMethodLabels[receiptSale.deliveryPaymentMethod]}</p>
+              ) : null}
               {receiptSale.detail.trim() ? <p>Detalle: {receiptSale.detail.trim()}</p> : null}
             </div>
 
@@ -588,6 +799,7 @@ export function SalesSection({
           {receiptPrintSections.thanks ? (
           <div className="receipt-paper">
             <div className="flex min-h-[48mm] flex-col items-center justify-center text-center">
+              <img src="/ceeseburgito.jpeg" alt="Ceeseburguito" className="receipt-thanks-image" />
               <p className="text-xl font-black uppercase leading-tight">Muchas gracias</p>
               <p className="mt-2 text-sm font-bold">Que las disfrute</p>
               <p className="mt-3 text-base font-black uppercase">Ceese Burger's</p>
@@ -691,13 +903,14 @@ export function SalesSection({
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-rose-500">Ventas</p>
-                <h3 className="mt-1 text-xl font-bold text-rose-950">Imprimir cierre diario</h3>
+                <h3 className="mt-1 text-xl font-bold text-rose-950">Imprimir cierre</h3>
               </div>
               <button
                 type="button"
                 onClick={() => {
                   setIsDailyReportOpen(false);
                   setDailyReportPaperSize("56mm");
+                  setSalesReportPeriod("daily");
                 }}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
                 aria-label="Cerrar cierre diario"
@@ -706,9 +919,29 @@ export function SalesSection({
               </button>
             </div>
 
+            <div className="mt-5">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Tipo de cierre</p>
+              <div className="mt-2 grid grid-cols-3 gap-2 rounded-full bg-rose-50 p-1">
+                {(["daily", "weekly", "monthly"] as SalesReportPeriod[]).map((period) => (
+                  <button
+                    key={period}
+                    type="button"
+                    onClick={() => setSalesReportPeriod(period)}
+                    className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+                      salesReportPeriod === period ? "bg-fuchsia-600 text-white" : "text-rose-700"
+                    }`}
+                  >
+                    {salesReportPeriodLabels[period]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_190px]">
               <label className="block space-y-2">
-                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Dia de venta</span>
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">
+                  {salesReportPeriod === "daily" ? "Dia de venta" : "Fecha dentro del periodo"}
+                </span>
                 <input
                   type="date"
                   value={dailyReportDate}
@@ -741,7 +974,9 @@ export function SalesSection({
             </div>
 
             <div className="mt-4 rounded-[1.25rem] bg-rose-50/60 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Turno</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">
+                {salesReportPeriod === "daily" ? "Turno" : "Periodo"}
+              </p>
               <p className="mt-2 text-sm font-bold text-rose-950">
                 {formatReportDateTime(dailyReportRange.start)} a {formatReportDateTime(dailyReportRange.end)}
               </p>
@@ -772,12 +1007,31 @@ export function SalesSection({
               </p>
             </div>
 
+            {salesReportPeriod !== "daily" ? (
+              <div className="mt-4 rounded-[1.25rem] border border-rose-100 bg-white/80 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Mas vendido</p>
+                {dailyReportProductStats.length > 0 ? (
+                  <div className="mt-3 max-h-48 space-y-2 overflow-auto pr-1 text-sm text-rose-800">
+                    {dailyReportProductStats.slice(0, 8).map((product) => (
+                      <div key={product.name} className="flex justify-between gap-3 rounded-[1rem] bg-rose-50/60 px-3 py-2">
+                        <span className="min-w-0 font-semibold">{formatNumber(product.quantity)} x {product.name}</span>
+                        <span className="shrink-0 font-black text-fuchsia-700">{formatCurrency(product.total)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-sm text-rose-700/80">No hay productos vendidos en este periodo.</p>
+                )}
+              </div>
+            ) : null}
+
             <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={() => {
                   setIsDailyReportOpen(false);
                   setDailyReportPaperSize("56mm");
+                  setSalesReportPeriod("daily");
                 }}
                 className="rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
               >
@@ -790,6 +1044,88 @@ export function SalesSection({
               >
                 <PrintIcon />
                 Imprimir cierre
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {paymentSale ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/55 px-4 py-8 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-[2rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.28)]">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-rose-500">Ventas</p>
+                <h3 className="mt-1 text-xl font-bold text-rose-950">Registrar pago</h3>
+              </div>
+              <button
+                type="button"
+                onClick={closePaymentModal}
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
+                aria-label="Cerrar pago"
+              >
+                <XIcon />
+              </button>
+            </div>
+
+            <div className="mt-5 rounded-[1.25rem] bg-rose-50/60 p-4 text-sm text-rose-800">
+              <div className="flex justify-between gap-3">
+                <span>Total venta</span>
+                <span className="font-black text-fuchsia-700">{formatCurrency(getSaleNetTotal(paymentSale))}</span>
+              </div>
+              <p className="mt-1 text-xs font-semibold text-rose-500">{paymentSale.client || "Sin cliente"}</p>
+            </div>
+
+            <div className="mt-4 grid gap-2">
+              <button
+                type="button"
+                onClick={() => handleDirectPayment("efectivo")}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-rose-500 bg-rose-500 px-5 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-white transition hover:border-rose-800 hover:bg-rose-800"
+              >
+                <PaymentIcon />
+                Efectivo
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDirectPayment("transferencia")}
+                className="inline-flex items-center justify-center gap-2 rounded-full border border-fuchsia-600 bg-fuchsia-600 px-5 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-white transition hover:border-fuchsia-900 hover:bg-fuchsia-900"
+              >
+                <PaymentIcon />
+                Debito / transferencia
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-[1.25rem] border border-rose-100 bg-white/80 p-4">
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Mixto</p>
+              <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                <label className="block space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Efectivo</span>
+                  <input
+                    value={mixedCashAmount}
+                    onChange={(event) => handleMixedCashChange(event.target.value)}
+                    inputMode="numeric"
+                    className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                    placeholder="0"
+                  />
+                </label>
+                <label className="block space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Debito / transferencia</span>
+                  <input
+                    value={mixedTransferAmount}
+                    onChange={(event) => handleMixedTransferChange(event.target.value)}
+                    inputMode="numeric"
+                    className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                    placeholder="0"
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                onClick={handleMixedPayment}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-stone-900 px-5 py-3 text-sm font-semibold uppercase tracking-[0.14em] text-white transition hover:bg-stone-700"
+              >
+                <PaymentIcon />
+                Guardar mixto
               </button>
             </div>
           </div>
@@ -854,7 +1190,7 @@ export function SalesSection({
                       <button
                         key={option.value}
                         type="button"
-                        onClick={() => setSaleEditForm((current) => ({ ...current, deliveryType: option.value as DeliveryType }))}
+                        onClick={() => updateSaleEditDeliveryType(option.value as DeliveryType)}
                         className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
                           saleEditForm.deliveryType === option.value ? "bg-fuchsia-600 text-white" : "text-rose-700"
                         }`}
@@ -867,29 +1203,51 @@ export function SalesSection({
               </div>
 
               {saleEditForm.deliveryType === "delivery" ? (
-                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
-                  <label className="block space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Direccion delivery</span>
-                    <input
-                      value={saleEditForm.deliveryAddress}
-                      onChange={(event) => setSaleEditForm((current) => ({ ...current, deliveryAddress: event.target.value }))}
-                      className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
-                      placeholder="Calle, numero, referencia"
-                    />
-                  </label>
+                <div className="space-y-3">
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px]">
+                    <label className="block space-y-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Direccion delivery</span>
+                      <input
+                        value={saleEditForm.deliveryAddress}
+                        onChange={(event) => setSaleEditForm((current) => ({ ...current, deliveryAddress: event.target.value }))}
+                        className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                        placeholder="Calle, numero, referencia"
+                      />
+                    </label>
 
-                  <label className="block space-y-2">
-                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Valor delivery</span>
-                    <input
-                      value={saleEditForm.deliveryFee}
-                      onChange={(event) =>
-                        setSaleEditForm((current) => ({ ...current, deliveryFee: event.target.value.replace(/\D/g, "") }))
-                      }
-                      inputMode="numeric"
-                      className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
-                      placeholder="0"
-                    />
-                  </label>
+                    <label className="block space-y-2">
+                      <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Valor delivery</span>
+                      <input
+                        value={saleEditForm.deliveryFee}
+                        onChange={(event) =>
+                          setSaleEditForm((current) => ({ ...current, deliveryFee: event.target.value.replace(/\D/g, "") }))
+                        }
+                        inputMode="numeric"
+                        className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                        placeholder="0"
+                      />
+                    </label>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Pago delivery</p>
+                    <div className="mt-2 grid gap-2 rounded-[1rem] bg-rose-50 p-1 sm:grid-cols-3">
+                      {Object.entries(deliveryPaymentMethodLabels).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() =>
+                            setSaleEditForm((current) => ({ ...current, deliveryPaymentMethod: value as DeliveryPaymentMethod }))
+                          }
+                          className={`rounded-[0.8rem] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+                            saleEditForm.deliveryPaymentMethod === value ? "bg-fuchsia-600 text-white" : "text-rose-700"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               ) : null}
 
@@ -930,13 +1288,14 @@ export function SalesSection({
           type="button"
           onClick={() => {
             setDailyReportDate(getDateInputValue());
+            setSalesReportPeriod("daily");
             setDailyReportPaperSize("56mm");
             setIsDailyReportOpen(true);
           }}
           className="inline-flex items-center gap-2 rounded-full border border-fuchsia-200 bg-fuchsia-50 px-5 py-3 text-sm font-semibold text-fuchsia-700 transition hover:border-fuchsia-300 hover:bg-white"
         >
           <PrintIcon />
-          Imprimir cierre diario
+          Imprimir cierre
         </button>
         <button
           type="button"
@@ -1023,6 +1382,11 @@ export function SalesSection({
                             {sale.deliveryType === "delivery" ? (
                               <p className="mt-1 text-xs font-semibold text-fuchsia-700">{formatCurrency(sale.deliveryFee ?? 0)}</p>
                             ) : null}
+                            {sale.deliveryType === "delivery" && sale.deliveryPaymentMethod ? (
+                              <p className="mt-1 text-xs text-rose-700/80">
+                                Pago delivery: {deliveryPaymentMethodLabels[sale.deliveryPaymentMethod]}
+                              </p>
+                            ) : null}
                           </td>
                           <td className="py-4 pr-4">
                             <p className="font-bold text-fuchsia-700">{formatCurrency(getSaleNetTotal(sale))}</p>
@@ -1031,60 +1395,88 @@ export function SalesSection({
                             ) : null}
                           </td>
                           <td className="py-4 pr-4">
-                            <span
-                              className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${
-                                sale.status === "pendiente"
-                                  ? "bg-amber-50 text-amber-700"
-                                  : sale.status === "efectivo"
+                            {sale.status === "pendiente" ? (
+                              <div onClick={(event) => event.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={() => openPaymentModal(sale)}
+                                  className="inline-flex items-center gap-1 rounded-full border border-fuchsia-600 bg-fuchsia-600 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white shadow-sm transition hover:border-fuchsia-900 hover:bg-fuchsia-900 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-fuchsia-300"
+                                >
+                                  <PaymentIcon />
+                                  Pago
+                                </button>
+                              </div>
+                            ) : (
+                              <span
+                                className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.16em] ${
+                                  sale.status === "efectivo"
                                     ? "bg-rose-50 text-rose-600"
-                                    : "bg-fuchsia-50 text-fuchsia-700"
-                              }`}
-                            >
-                              {saleStatusLabels[sale.status]}
-                            </span>
+                                    : sale.status === "mixto"
+                                      ? "bg-stone-100 text-stone-700"
+                                      : "bg-fuchsia-50 text-fuchsia-700"
+                                }`}
+                              >
+                                {saleStatusLabels[sale.status]}
+                              </span>
+                            )}
+                            {sale.status === "mixto" ? (
+                              <p className="mt-2 text-xs font-semibold text-rose-700/80">
+                                Efectivo {formatCurrency(sale.cashAmount ?? 0)} · Debito {formatCurrency(sale.transferAmount ?? 0)}
+                              </p>
+                            ) : null}
                           </td>
                           <td className="py-4">
                             <div className="flex flex-wrap gap-2" onClick={(event) => event.stopPropagation()}>
-                              {sale.status === "pendiente" ? (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() => onUpdateStatus(sale.id, "efectivo")}
-                                    className="rounded-full border border-rose-500 bg-rose-500 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white shadow-sm transition hover:border-rose-800 hover:bg-rose-800 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-rose-300"
-                                  >
-                                    Efectivo
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => onUpdateStatus(sale.id, "transferencia")}
-                                    className="rounded-full border border-fuchsia-600 bg-fuchsia-600 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-white shadow-sm transition hover:border-fuchsia-900 hover:bg-fuchsia-900 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-fuchsia-300"
-                                  >
-                                    Debito / transferencia
-                                  </button>
-                                </>
-                              ) : null}
                               <button
                                 type="button"
                                 onClick={() => openReprintReceipt(sale)}
-                                className="inline-flex items-center gap-1 rounded-full border border-stone-300 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 shadow-sm transition hover:border-stone-800 hover:bg-stone-800 hover:text-white hover:shadow-md focus:outline-none focus:ring-2 focus:ring-stone-300"
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-stone-300 bg-white text-stone-700 shadow-sm transition hover:border-stone-800 hover:bg-stone-800 hover:text-white hover:shadow-md focus:outline-none focus:ring-2 focus:ring-stone-300"
+                                aria-label="Reimprimir venta"
                               >
                                 <PrintIcon />
-                                Reimprimir
                               </button>
-                              <button
-                                type="button"
-                                onClick={() => openEditSale(sale)}
-                                className="rounded-full border border-fuchsia-200 bg-fuchsia-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-fuchsia-700 transition hover:border-fuchsia-700 hover:bg-fuchsia-700 hover:text-white"
-                              >
-                                Editar
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => onDelete(sale.id)}
-                                className="rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-xs font-semibold uppercase tracking-[0.18em] text-rose-500 transition hover:border-rose-700 hover:bg-rose-700 hover:text-white"
-                              >
-                                Eliminar
-                              </button>
+                              <div className="relative">
+                                <button
+                                  type="button"
+                                  onClick={() => setActionsSaleId((current) => (current === sale.id ? null : sale.id))}
+                                  className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-fuchsia-200 bg-fuchsia-50 text-fuchsia-700 shadow-sm transition hover:border-fuchsia-700 hover:bg-fuchsia-700 hover:text-white hover:shadow-md focus:outline-none focus:ring-2 focus:ring-fuchsia-300"
+                                  aria-label="Abrir ajustes de venta"
+                                >
+                                  <DotsIcon />
+                                </button>
+
+                                {actionsSaleId === sale.id ? (
+                                  <div className="absolute right-0 top-full z-20 mt-2 w-56 rounded-[1rem] border border-rose-100 bg-white p-2 text-left shadow-[0_18px_45px_rgba(28,25,23,0.16)]">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActionsSaleId(null);
+                                        openEditSale(sale);
+                                      }}
+                                      className="block w-full rounded-[0.8rem] px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] text-fuchsia-700 transition hover:bg-fuchsia-50"
+                                    >
+                                      Editar venta
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => openPaymentModal(sale)}
+                                      className="block w-full rounded-[0.8rem] px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] text-stone-700 transition hover:bg-stone-100"
+                                    >
+                                      Editar forma de pago
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActionsSaleId(null);
+                                        onDelete(sale.id);
+                                      }}
+                                      className="block w-full rounded-[0.8rem] px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] text-rose-600 transition hover:bg-rose-50"
+                                    >
+                                      Eliminar
+                                    </button>
+                                  </div>
+                                ) : null}
+                              </div>
                             </div>
                           </td>
                         </tr>

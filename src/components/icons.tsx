@@ -39,6 +39,17 @@ export function SalesIcon() {
   );
 }
 
+export function PaymentIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 7.25h16.5a1.5 1.5 0 0 1 1.5 1.5v8.5a1.5 1.5 0 0 1-1.5 1.5H3.75a1.5 1.5 0 0 1-1.5-1.5v-8.5a1.5 1.5 0 0 1 1.5-1.5Z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 10.25h19.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.25 15.75h3.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M15.5 14.25c0-.75-.7-1.25-1.75-1.25S12 13.5 12 14.25s.7 1.1 1.75 1.25 1.75.5 1.75 1.25S14.8 18 13.75 18 12 17.5 12 16.75" />
+    </svg>
+  );
+}
+
 export function PrintIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
@@ -78,12 +89,55 @@ export function IngredientIcon() {
   );
 }
 
+export function EventIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M7 3.75v2.5M17 3.75v2.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.75 8.25h14.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M6.25 5.25h11.5a2 2 0 0 1 2 2v10.5a2 2 0 0 1-2 2H6.25a2 2 0 0 1-2-2V7.25a2 2 0 0 1 2-2Z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="m8.25 14 2.25 2.25 5.25-5.5" />
+    </svg>
+  );
+}
+
+export function SettingsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 8.25a3.75 3.75 0 1 1 0 7.5 3.75 3.75 0 0 1 0-7.5Z" />
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M18.1 9.1 19.5 7l-2.5-2.5-2.1 1.4a7.2 7.2 0 0 0-1.7-.7L12.75 2h-3.5L8.8 5.2c-.6.18-1.18.42-1.7.7L5 4.5 2.5 7l1.4 2.1a7.2 7.2 0 0 0-.7 1.7L0 11.25v3.5l3.2.45c.18.6.42 1.18.7 1.7L2.5 19 5 21.5l2.1-1.4c.52.28 1.1.52 1.7.7l.45 3.2h3.5l.45-3.2c.6-.18 1.18-.42 1.7-.7l2.1 1.4 2.5-2.5-1.4-2.1c.28-.52.52-1.1.7-1.7l3.2-.45v-3.5l-3.2-.45a7.2 7.2 0 0 0-.7-1.7Z"
+      />
+    </svg>
+  );
+}
+
 export function DotsIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="currentColor" className="h-5 w-5">
       <circle cx="5" cy="12" r="1.8" />
       <circle cx="12" cy="12" r="1.8" />
       <circle cx="19" cy="12" r="1.8" />
+    </svg>
+  );
+}
+
+export function ArrowUpIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="m6 14 6-6 6 6" />
+    </svg>
+  );
+}
+
+export function ImageOffIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-8 w-8">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M4.75 6.75A2 2 0 0 1 6.75 4.75h10.5a2 2 0 0 1 2 2v10.5a2 2 0 0 1-2 2H6.75a2 2 0 0 1-2-2V6.75Z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="m4.75 19.25 14.5-14.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="m8 15.75 2.25-2.25 1.75 1.75 1.25-1.25" />
+      <circle cx="9" cy="8.75" r="1.25" />
     </svg>
   );
 }

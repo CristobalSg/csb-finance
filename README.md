@@ -21,6 +21,35 @@ pnpm preview
 pnpm lint
 ```
 
+## Docker
+
+Levanta la aplicacion web en `http://localhost:8080`:
+
+```bash
+docker compose up --build
+```
+
+Tambien puedes construir y correr solo la imagen del frontend:
+
+```bash
+docker build -t csb-finance .
+docker run --rm -p 8080:80 csb-finance
+```
+
+El servidor de impresora ESC/POS es opcional. Para levantarlo junto al frontend usa el perfil `printer`:
+
+```bash
+docker compose --profile printer up --build
+```
+
+Para impresora de red:
+
+```bash
+PRINTER_CONNECTION=network PRINTER_HOST=192.168.1.50 docker compose --profile printer up --build
+```
+
+El frontend queda servido por nginx y el healthcheck queda disponible en `http://localhost:8080/healthz`.
+
 ## Estructura
 
 ```text
