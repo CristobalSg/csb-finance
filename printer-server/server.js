@@ -82,10 +82,9 @@ const printerEventCutFeedLines = Number(process.env.PRINTER_EVENT_CUT_FEED_LINES
 const receiptLogoWidth80mm = Number(process.env.RECEIPT_LOGO_WIDTH_80MM || 384);
 const receiptLogoWidth56mm = Number(process.env.RECEIPT_LOGO_WIDTH_56MM || 256);
 const horizontalReceiptLogoWidth56mm = Number(process.env.HORIZONTAL_RECEIPT_LOGO_WIDTH_56MM || 300);
-const thanksImageWidth80mm = Number(process.env.THANKS_IMAGE_WIDTH_80MM || 360);
-const thanksImageWidth56mm = Number(process.env.THANKS_IMAGE_WIDTH_56MM || 260);
 const receiptPaperDots80mm = Number(process.env.RECEIPT_PAPER_DOTS_80MM || 576);
 const receiptPaperDots56mm = Number(process.env.RECEIPT_PAPER_DOTS_56MM || 384);
+const receiptTopFeedLines = Number(process.env.RECEIPT_TOP_FEED_LINES || 0);
 const receiptLogoBottomFeedLines = Number(process.env.RECEIPT_LOGO_BOTTOM_FEED_LINES || 0);
 const orderStatuses = new Set(["pending", "confirmed", "preparing", "ready", "delivered", "cancelled"]);
 const orderColumns = [
@@ -174,11 +173,6 @@ const getPrintableLogoWidth = (paperSize, logoPath) => {
 
 const getPrintableLogoCanvasWidth = (paperSize) => {
   return getReceiptPaperDots(paperSize);
-};
-
-const getThanksImageWidth = (paperSize) => {
-  const configuredWidth = paperSize === "56mm" ? thanksImageWidth56mm : thanksImageWidth80mm;
-  return Number.isFinite(configuredWidth) && configuredWidth > 0 ? Math.floor(configuredWidth) : undefined;
 };
 
 const getReceiptLogoPath = (logoPath) => {
@@ -288,6 +282,93 @@ const centerReceiptLogo = (logo, canvasWidth) => {
   };
 
   return centeredLogo;
+};
+
+const thanksGlyphs = {
+  A: ["010", "101", "111", "101", "101"],
+  B: ["110", "101", "110", "101", "110"],
+  C: ["011", "100", "100", "100", "011"],
+  D: ["110", "101", "101", "101", "110"],
+  E: ["111", "100", "110", "100", "111"],
+  F: ["111", "100", "110", "100", "100"],
+  G: ["011", "100", "101", "101", "011"],
+  H: ["101", "101", "111", "101", "101"],
+  I: ["111", "010", "010", "010", "111"],
+  L: ["100", "100", "100", "100", "111"],
+  M: ["101", "111", "111", "101", "101"],
+  Q: ["010", "101", "101", "111", "011"],
+  R: ["110", "101", "110", "101", "101"],
+  S: ["011", "100", "010", "001", "110"],
+  T: ["111", "010", "010", "010", "010"],
+  U: ["101", "101", "101", "101", "111"],
+  "'": ["010", "010", "000", "000", "000"],
+  " ": ["000", "000", "000", "000", "000"],
+};
+
+const createImageLike = (sourceImage, width, height, data) => {
+  const image = Object.create(Object.getPrototypeOf(sourceImage));
+  image.data = data;
+  image.pixels = {
+    shape: [width, height, sourceImage.size.colors],
+  };
+  return image;
+};
+
+const drawGlyphText = (canvas, canvasWidth, x, y, value, scale) => {
+  let cursorX = x;
+
+  for (const character of normalizeText(value).toUpperCase()) {
+    const glyph = thanksGlyphs[character] || thanksGlyphs[" "];
+
+    for (let gy = 0; gy < glyph.length; gy += 1) {
+      for (let gx = 0; gx < glyph[gy].length; gx += 1) {
+        if (glyph[gy][gx] !== "1") {
+          continue;
+        }
+
+        for (let sy = 0; sy < scale; sy += 1) {
+          for (let sx = 0; sx < scale; sx += 1) {
+            const pixelX = cursorX + gx * scale + sx;
+            const pixelY = y + gy * scale + sy;
+
+            if (pixelX >= 0 && pixelX < canvasWidth && pixelY >= 0) {
+              canvas[pixelY * canvasWidth + pixelX] = 1;
+            }
+          }
+        }
+      }
+    }
+
+    cursorX += (glyph[0].length + 1) * scale;
+  }
+};
+
+const createThanksLayoutImage = (image, section, paperSize) => {
+  const canvasWidth = getReceiptPaperDots(paperSize);
+  const imageWidth = paperSize === "56mm" ? 92 : 128;
+  const scale = paperSize === "56mm" ? 3 : 4;
+  const lineGap = paperSize === "56mm" ? 8 : 10;
+  const resizedImage = resizeReceiptLogo(image, imageWidth);
+  const textLines = section.lines?.length ? section.lines : ["Muchas gracias"];
+  const textHeight = textLines.length * 5 * scale + Math.max(0, textLines.length - 1) * lineGap;
+  const height = Math.max(resizedImage.size.height, textHeight) + 12;
+  const data = new Array(canvasWidth * height).fill(0);
+  const imageTop = Math.floor((height - resizedImage.size.height) / 2);
+  const textTop = Math.floor((height - textHeight) / 2);
+  const imageLeft = paperSize === "56mm" ? 8 : 16;
+  const textLeft = imageLeft + resizedImage.size.width + (paperSize === "56mm" ? 14 : 22);
+
+  for (let y = 0; y < resizedImage.size.height; y += 1) {
+    for (let x = 0; x < resizedImage.size.width; x += 1) {
+      data[(imageTop + y) * canvasWidth + imageLeft + x] = resizedImage.data[y * resizedImage.size.width + x];
+    }
+  }
+
+  textLines.forEach((line, index) => {
+    drawGlyphText(data, canvasWidth, textLeft, textTop + index * (5 * scale + lineGap), line, scale);
+  });
+
+  return createImageLike(image, canvasWidth, height, data);
 };
 
 class WindowsSpoolDevice {
@@ -499,6 +580,12 @@ const setTicketLineSpacing = (printer, lineSpacing = printerLineSpacing) => {
   }
 };
 
+const feedLines = (printer, lines) => {
+  if (Number.isFinite(lines) && lines > 0) {
+    printer.feed(Math.floor(lines));
+  }
+};
+
 const writeCentered = (printer, value, columns, bold = false) => {
   printer.align("lt");
   setBold(printer, bold);
@@ -581,9 +668,7 @@ const printReceiptLogo = async (printer, paperSize, logoPath) => {
     printer.feed(1);
   }
 
-  if (Number.isFinite(receiptLogoBottomFeedLines) && receiptLogoBottomFeedLines > 0) {
-    printer.feed(receiptLogoBottomFeedLines);
-  }
+  feedLines(printer, receiptLogoBottomFeedLines);
 };
 
 const printBoleta = async (printer, section, columns, paperSize, logoPath) => {
@@ -615,25 +700,29 @@ const printBoleta = async (printer, section, columns, paperSize, logoPath) => {
 
 const printThanksImage = async (printer, section, paperSize) => {
   if (!section.imagePath) {
-    return;
+    return false;
   }
 
   const image = await loadReceiptLogo(section.imagePath);
   if (!image) {
-    return;
+    return false;
   }
 
-  const resizedImage = resizeReceiptLogo(image, getThanksImageWidth(paperSize));
-  const printableImage = centerReceiptLogo(resizedImage, getReceiptPaperDots(paperSize));
+  const printableImage = createThanksLayoutImage(image, section, paperSize);
   printer.align("lt");
   await printer.image(printableImage, "d24");
   printer.align("lt");
   setTicketLineSpacing(printer);
   printer.feed(1);
+  return true;
 };
 
 const printThanks = async (printer, section, columns, paperSize) => {
-  await printThanksImage(printer, section, paperSize);
+  const printedLayout = await printThanksImage(printer, section, paperSize);
+
+  if (printedLayout) {
+    return;
+  }
 
   for (const line of section.lines || ["Muchas gracias"]) {
     writeCentered(printer, line, columns, true);
@@ -743,6 +832,8 @@ const printEscpos = async (job) => {
   setTicketLineSpacing(printer);
 
   for (const [index, section] of job.sections.entries()) {
+    feedLines(printer, receiptTopFeedLines);
+
     if (section.type === "comanda") {
       printComanda(printer, section, columns);
     } else if (section.type === "boleta") {

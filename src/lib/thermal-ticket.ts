@@ -78,6 +78,7 @@ export type TicketPrintJob = {
 export type TicketOrderInput = {
   businessName?: string;
   paperSize: ReceiptPaperSize;
+  logoPath?: string;
   sections: TicketSectionSelection;
   createdAt?: string;
   client?: string;
@@ -123,6 +124,7 @@ export type DailyReportTicketInput = {
 export type EventTicketInput = {
   businessName?: string;
   paperSize: ReceiptPaperSize;
+  logoPath?: string;
   studentName: string;
   burgerName: string;
   removedIngredients: string[];
@@ -293,6 +295,7 @@ export const buildTicketData = (order: TicketOrderInput): TicketPrintJob => {
   return {
     businessName,
     paperSize: order.paperSize,
+    logoPath: order.logoPath,
     sections,
   };
 };
@@ -342,6 +345,7 @@ export const buildEventTicketData = (eventTicket: EventTicketInput): TicketPrint
   return {
     businessName,
     paperSize: eventTicket.paperSize,
+    logoPath: eventTicket.logoPath,
     sections: [
       {
         type: "evento",

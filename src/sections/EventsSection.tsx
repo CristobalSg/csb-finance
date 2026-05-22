@@ -49,7 +49,7 @@ const saveEventPrintHistory = (records: EventPrintRecord[]) => {
   localStorage.setItem(eventPrintHistoryKey, JSON.stringify(records));
 };
 
-export function EventsSection() {
+export function EventsSection({ receiptLogoPath }: { receiptLogoPath: string }) {
   const burgerItems = useMemo(() => orderMenuItems.filter((item) => item.category === "burgers"), []);
   const [selectedBurger, setSelectedBurger] = useState<OrderMenuItem | null>(null);
   const [form, setForm] = useState<EventForm>(emptyForm);
@@ -92,6 +92,7 @@ export function EventsSection() {
     await printTicket(
       buildEventTicketData({
         paperSize,
+        logoPath: receiptLogoPath,
         studentName: record.studentName,
         burgerName: record.burgerName,
         removedIngredients: record.removedIngredients,
@@ -286,7 +287,7 @@ export function EventsSection() {
                     style={{ lineHeight: `${Math.max(1.05, form.lineSpacing / defaultLineSpacing)}rem` }}
                   >
                     <div className="text-center">
-                      <img src="/receipt-logo.png" alt="Ceese Burger's" className="receipt-logo" />
+                      <img src={`/${receiptLogoPath}`} alt="Ceese Burger's" className="receipt-logo" />
                       <p className="mt-1 text-xs font-bold">Ceeseburger's Labranza</p>
                     </div>
 

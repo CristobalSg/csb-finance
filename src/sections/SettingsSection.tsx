@@ -2,10 +2,10 @@ import { useState } from "react";
 
 import { MoonIcon, PrintIcon, SunIcon } from "../components/icons";
 import { shellCardClass } from "../constants/app";
+import { receiptLogoOptions } from "../lib/receipt-settings";
 import { printTicket } from "../lib/thermal-printer";
 import { buildTestTicketData, buildThanksTestTicketData, type ReceiptPaperSize } from "../lib/thermal-ticket";
 
-const horizontalLogoPath = "Logo_ceese_horizontal_png.png";
 const thanksImagePath = "ceeseburgito.jpeg";
 
 export type AppTheme = "light" | "dark" | "red-dark" | "gray-dark";
@@ -24,14 +24,18 @@ const themeOptions: Array<{
 
 export function SettingsSection({
   theme,
+  receiptLogoPath,
   onExport,
   onClearAllData,
   onThemeChange,
+  onReceiptLogoChange,
 }: {
   theme: AppTheme;
+  receiptLogoPath: string;
   onExport: () => void;
   onClearAllData: () => void;
   onThemeChange: (theme: AppTheme) => void;
+  onReceiptLogoChange: (logoPath: string) => void;
 }) {
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("80mm");
   const [isPrinting, setIsPrinting] = useState(false);
@@ -47,7 +51,7 @@ export function SettingsSection({
       await printTicket(
         buildTestTicketData({
           paperSize,
-          logoPath: horizontalLogoPath,
+          logoPath: receiptLogoPath,
         }),
       );
     } catch (error) {
@@ -153,7 +157,7 @@ export function SettingsSection({
             <p className="text-xs font-bold uppercase tracking-[0.18em] text-fuchsia-600">Configuracion</p>
             <h2 className="mt-1 text-2xl font-black text-rose-950">Pruebas de impresion</h2>
             <p className="mt-2 max-w-2xl text-sm text-rose-700">
-              Imprime una boleta de test con el logo horizontal para revisar tamano, margenes y corte en la impresora.
+              Elige la imagen de la boleta e imprime pruebas para revisar tamano, margenes y corte en la impresora.
             </p>
           </div>
         </div>
@@ -161,11 +165,34 @@ export function SettingsSection({
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
           <div className="grid gap-4">
             <div className="rounded-2xl border border-rose-100 bg-white/70 p-4">
-              <p className="text-sm font-bold text-rose-950">Logo de prueba</p>
+              <p className="text-sm font-bold text-rose-950">Imagen de boleta</p>
+              <div className="mt-4 grid gap-2">
+                {receiptLogoOptions.map((option) => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    onClick={() => onReceiptLogoChange(option.path)}
+                    className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition ${
+                      receiptLogoPath === option.path
+                        ? "border-fuchsia-300 bg-fuchsia-50 text-fuchsia-700"
+                        : "border-rose-100 bg-white text-rose-800 hover:border-fuchsia-200 hover:text-fuchsia-700"
+                    }`}
+                    aria-pressed={receiptLogoPath === option.path}
+                  >
+                    <span className="flex h-14 w-20 shrink-0 items-center justify-center rounded-xl border border-rose-100 bg-white p-2">
+                      <img src={`/${option.path}`} alt={option.label} className="max-h-full max-w-full object-contain" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-bold">{option.label}</span>
+                      <span className="block text-xs font-semibold text-rose-500">{option.detail}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
               <div className="mt-4 rounded-xl border border-dashed border-rose-200 bg-white p-4">
                 <img
-                  src={`/${horizontalLogoPath}`}
-                  alt="Ceese Burger's horizontal"
+                  src={`/${receiptLogoPath}`}
+                  alt="Imagen seleccionada para boleta"
                   className={`mx-auto h-auto max-h-24 w-full object-contain ${paperSize === "56mm" ? "max-w-[56mm]" : "max-w-[24rem]"}`}
                 />
               </div>

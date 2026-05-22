@@ -232,6 +232,7 @@ const getKitchenSummary = (items: SaleOrderItem[]) => {
 export function SalesSection({
   loading,
   sales,
+  receiptLogoPath,
   onDelete,
   onUpdateStatus,
   onUpdateSale,
@@ -240,6 +241,7 @@ export function SalesSection({
 }: {
   loading: boolean;
   sales: Sale[];
+  receiptLogoPath: string;
   onDelete: (id: string) => void;
   onUpdateStatus: (id: string, status: SaleStatus, paymentAmounts?: { cashAmount?: number; transferAmount?: number }) => void;
   onUpdateSale: (id: string, updates: SaleUpdateInput) => void;
@@ -462,6 +464,7 @@ export function SalesSection({
       await printTicket(
         buildTicketData({
           paperSize: receiptPaperSize,
+          logoPath: receiptLogoPath,
           sections: receiptPrintSections,
           createdAt: receiptSale.createdAt,
           client: receiptSale.client,
@@ -728,7 +731,7 @@ export function SalesSection({
           {receiptPrintSections.receipt ? (
           <div className="receipt-paper">
             <div className="text-center">
-              <img src="/receipt-logo.png" alt="Ceese Burger's" className="receipt-logo" />
+              <img src={`/${receiptLogoPath}`} alt="Ceese Burger's" className="receipt-logo" />
               <p className="mt-1 text-xs font-bold">{new Date(receiptSale.createdAt).toLocaleString("es-CL")}</p>
             </div>
 
@@ -812,11 +815,13 @@ export function SalesSection({
 
           {receiptPrintSections.thanks ? (
           <div className="receipt-paper">
-            <div className="flex min-h-[48mm] flex-col items-center justify-center text-center">
+            <div className="receipt-thanks-layout">
               <img src="/ceeseburgito.jpeg" alt="Ceeseburguito" className="receipt-thanks-image" />
-              <p className="text-xl font-black uppercase leading-tight">Muchas gracias</p>
-              <p className="mt-2 text-sm font-bold">Que las disfrute</p>
-              <p className="mt-3 text-base font-black uppercase">Ceese Burger's</p>
+              <div className="receipt-thanks-copy">
+                <p className="text-base font-black uppercase leading-tight">Muchas gracias</p>
+                <p className="mt-1 text-xs font-bold">Que las disfrute</p>
+                <p className="mt-1 text-sm font-black uppercase">Ceese Burger's</p>
+              </div>
             </div>
           </div>
           ) : null}

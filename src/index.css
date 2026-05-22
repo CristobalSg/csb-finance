@@ -384,10 +384,24 @@ html {
 
 .receipt-thanks-image {
   display: block;
-  width: 46mm;
-  max-width: 90%;
+  width: 22mm;
+  max-width: 38%;
   height: auto;
-  margin: 0 auto 3mm;
+  margin: 0;
+}
+
+.receipt-thanks-layout {
+  display: flex;
+  min-height: 28mm;
+  align-items: center;
+  justify-content: center;
+  gap: 3mm;
+  text-align: left;
+}
+
+.receipt-thanks-copy {
+  min-width: 0;
+  flex: 1;
 }
 
 @page {

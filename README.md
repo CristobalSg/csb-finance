@@ -21,6 +21,22 @@ pnpm preview
 pnpm lint
 ```
 
+## Variables de entorno
+
+Para desarrollo local copia `.env.example` a `.env` en la raiz del proyecto. Ese archivo define el servidor local de impresion que usa Vite:
+
+```bash
+VITE_PRINTER_SERVER_URL=http://localhost:3001
+VITE_INTERNAL_SERVER_URL=http://localhost:3001
+```
+
+Para el servidor ESC/POS copia `printer-server/.env.example` a `printer-server/.env`. En Windows con una impresora instalada como `POS-80`, los valores clave son:
+
+```bash
+PRINTER_CONNECTION=windows
+PRINTER_NAME=POS-80
+```
+
 ## Docker
 
 Levanta la aplicacion web en `http://localhost:8080`:

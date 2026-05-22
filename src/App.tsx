@@ -9,6 +9,7 @@ import type { OrderMenuCategoryId } from "./data/order-menu";
 import { useFinanceData } from "./hooks/useFinanceData";
 import { IngredientControlPage } from "./pages/IngredientControlPage";
 import { OrdersManagementPage } from "./pages/OrdersManagementPage";
+import { getValidReceiptLogoPath, receiptLogoPreferenceKey } from "./lib/receipt-settings";
 import { DashboardSection } from "./sections/DashboardSection";
 import { EventsSection } from "./sections/EventsSection";
 import { HomeSection } from "./sections/HomeSection";
@@ -35,11 +36,16 @@ export default function App() {
 
     return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   });
+  const [receiptLogoPath, setReceiptLogoPath] = useState(() => getValidReceiptLogoPath(localStorage.getItem(receiptLogoPreferenceKey)));
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     localStorage.setItem("theme", theme);
   }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem(receiptLogoPreferenceKey, receiptLogoPath);
+  }, [receiptLogoPath]);
 
   useEffect(() => {
     if (!isOrdersModalOpen && !isSalesModalOpen) {
@@ -61,6 +67,7 @@ export default function App() {
     <SalesSection
       loading={finance.loading}
       sales={finance.sales}
+      receiptLogoPath={receiptLogoPath}
       onDelete={(id) => void finance.handleDelete("sales", id)}
       onUpdateStatus={(id, status, paymentAmounts) => void finance.updateSaleStatus(id, status, paymentAmounts)}
       onUpdateSale={(id, updates) => void finance.updateSaleDetails(id, updates)}
@@ -70,7 +77,7 @@ export default function App() {
   );
 
   const contentBySection = {
-    home: <HomeSection activeMenuCategory={activeMenuCategory} onRegisterSale={finance.addSaleFromOrder} />,
+    home: <HomeSection activeMenuCategory={activeMenuCategory} receiptLogoPath={receiptLogoPath} onRegisterSale={finance.addSaleFromOrder} />,
     dashboard: (
       <DashboardSection
         totals={finance.totals}
@@ -104,13 +111,15 @@ export default function App() {
       />
     ),
     ingredientes: <IngredientControlPage />,
-    eventos: <EventsSection />,
+    eventos: <EventsSection receiptLogoPath={receiptLogoPath} />,
     configuracion: (
       <SettingsSection
         theme={theme}
+        receiptLogoPath={receiptLogoPath}
         onExport={finance.exportBackup}
         onClearAllData={() => void finance.handleClearAllData()}
         onThemeChange={setTheme}
+        onReceiptLogoChange={setReceiptLogoPath}
       />
     ),
   } as const;
@@ -216,7 +225,7 @@ export default function App() {
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-5">
-              <OrdersManagementPage refreshToken={ordersRefreshToken} />
+              <OrdersManagementPage refreshToken={ordersRefreshToken} receiptLogoPath={receiptLogoPath} />
             </div>
           </div>
         </div>

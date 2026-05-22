@@ -12,6 +12,8 @@ pnpm --dir printer-server install
 
 En Windows la forma recomendada es enviar ESC/POS RAW por el spooler usando el nombre exacto de la impresora.
 
+Puedes dejar estos valores en `printer-server/.env` copiando `printer-server/.env.example`, o pasarlos antes de iniciar el servidor como en el script `.bat`.
+
 Primero lista impresoras:
 
 ```bash
@@ -33,6 +35,10 @@ set PRINTER_CONNECTION=windows
 set PRINTER_NAME=POS-80
 pnpm printer:dev
 ```
+
+Para que el frontend apunte al servidor local, copia `.env.example` a `.env` en la raiz del proyecto. El valor por defecto usado por la app tambien es `http://localhost:3001`.
+
+Para agregar espacio antes de cada boleta/ticket, ajusta `RECEIPT_TOP_FEED_LINES` en `printer-server/.env`. Por ejemplo, `RECEIPT_TOP_FEED_LINES=1` avanza una linea antes de comenzar a imprimir.
 
 ## USB directo con libusb
 

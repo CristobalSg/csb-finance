@@ -306,7 +306,7 @@ function PrintOrderModal({
   );
 }
 
-export function OrdersManagementPage({ refreshToken = 0 }: { refreshToken?: number }) {
+export function OrdersManagementPage({ refreshToken = 0, receiptLogoPath }: { refreshToken?: number; receiptLogoPath: string }) {
   const [orders, setOrders] = useState<SupabaseOrder[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -403,6 +403,7 @@ export function OrdersManagementPage({ refreshToken = 0 }: { refreshToken?: numb
       await printTicket(
         buildTicketData({
           paperSize: printPaperSize,
+          logoPath: receiptLogoPath,
           sections: printSections,
           createdAt: printOrder.created_at,
           client: printOrder.customer_name,
