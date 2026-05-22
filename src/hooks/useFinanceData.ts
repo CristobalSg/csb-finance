@@ -34,6 +34,7 @@ import type {
   PurchaseEntryType,
   PurchaseItemType,
   Sale,
+  SaleFromOrderInput,
   SaleOrderItem,
   SaleStatus,
   StockControlMode,
@@ -125,6 +126,23 @@ const createSaleCreatedAt = (date: string) => {
   return Number.isNaN(parsedDate.getTime()) ? new Date().toISOString() : parsedDate.toISOString();
 };
 
+const getLocalDateFromIso = (value?: string) => {
+  if (!value) {
+    return getCurrentDate();
+  }
+
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return getCurrentDate();
+  }
+
+  const year = parsedDate.getFullYear();
+  const month = `${parsedDate.getMonth() + 1}`.padStart(2, "0");
+  const day = `${parsedDate.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 const parseCurrencyValue = (value: string) => {
   const normalized = value.replace(/\$/g, "").replace(/\./g, "").replace(/,/g, ".").trim();
   const number = Number.parseFloat(normalized);
@@ -144,6 +162,7 @@ const parseDeliveryType = (raw: string): DeliveryType => {
 const parseDeliveryPaymentMethod = (raw: string): DeliveryPaymentMethod | undefined => {
   const paymentMethod = normalizeCsvHeader(raw);
   if (!paymentMethod) return undefined;
+  if (paymentMethod.includes("CLIENTE") && paymentMethod.includes("EFECTIVO")) return "cliente_efectivo";
   if (paymentMethod.includes("NOSOTROS")) return "nosotros";
   if (paymentMethod.includes("DEBITO") || paymentMethod.includes("TARJETA")) return "debito";
   if (paymentMethod.includes("EFECTIVO")) return "efectivo";
@@ -1129,9 +1148,15 @@ export function useFinanceData() {
   };
 
   const addSaleFromOrder = async ({
+    id,
+    createdAt,
+    date,
     client,
     detail,
     total,
+    status,
+    cashAmount,
+    transferAmount,
     deliveryType,
     deliveryAddress,
     deliveryFee,
@@ -1141,33 +1166,25 @@ export function useFinanceData() {
     orderItems,
     quantity,
     productName,
-  }: {
-    client?: string;
-    detail: string;
-    total: number;
-    deliveryType: DeliveryType;
-    deliveryAddress?: string;
-    deliveryFee?: number;
-    deliveryPaymentMethod?: DeliveryPaymentMethod;
-    discountAmount?: number;
-    fulfillmentTime?: string;
-    orderItems: SaleOrderItem[];
-    quantity: number;
-    productName?: string;
-  }) => {
+  }: SaleFromOrderInput) => {
     if (orderItems.length === 0 || total <= 0) {
       saveFeedback("error", "No fue posible registrar la venta: el pedido esta vacio.");
       return false;
     }
 
+    const saleId = id ?? createId();
+    const saleCreatedAt = createdAt ?? new Date().toISOString();
+    const existingSale = sales.find((item) => item.id === saleId);
     const payload: Sale = {
-      id: createId(),
-      createdAt: new Date().toISOString(),
-      date: getCurrentDate(),
+      id: saleId,
+      createdAt: saleCreatedAt,
+      date: date ?? getLocalDateFromIso(saleCreatedAt),
       client: client?.trim().toUpperCase() ?? "",
       detail: detail.trim().toUpperCase(),
       total,
-      status: "pendiente",
+      status: status ?? "pendiente",
+      cashAmount,
+      transferAmount,
       deliveryType,
       deliveryAddress: deliveryAddress?.trim(),
       deliveryFee,
@@ -1180,6 +1197,13 @@ export function useFinanceData() {
     };
 
     try {
+      if (existingSale) {
+        await addRecord("sales", payload);
+        setSales((current) => [payload, ...current.filter((item) => item.id !== payload.id)].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+        saveFeedback("success", "Venta del pedido actualizada.");
+        return true;
+      }
+
       const ingredientStore = await loadIngredientStore();
       const inventoryResult = registerSale(ingredientStore, {
         ventaId: payload.id,
@@ -1194,7 +1218,7 @@ export function useFinanceData() {
 
       await saveIngredientStore(inventoryResult.state);
       await addRecord("sales", payload);
-      setSales((current) => [payload, ...current].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
+      setSales((current) => [payload, ...current.filter((item) => item.id !== payload.id)].sort((a, b) => b.createdAt.localeCompare(a.createdAt)));
       saveFeedback(
         "success",
         inventoryResult.validation.warnings.length > 0

@@ -19,7 +19,7 @@ export type MovementCategory =
   | "inversion";
 export type MovementPaymentMethod = "efectivo" | "debito" | "transferencia" | "credito" | "otro";
 export type DeliveryType = "retiro" | "delivery";
-export type DeliveryPaymentMethod = "efectivo" | "debito" | "nosotros";
+export type DeliveryPaymentMethod = "efectivo" | "debito" | "nosotros" | "cliente_efectivo";
 export type SupabaseOrderStatus = "pending" | "confirmed" | "preparing" | "ready" | "delivered" | "cancelled";
 export type SupabaseOrderType = "pickup" | "delivery";
 export type SupabaseOrderPaymentMethod = "transfer" | "cash";
@@ -122,6 +122,27 @@ export type SaleOrderFamilyBurger = {
   label: string;
   name: string;
   removedIngredients?: string[];
+};
+
+export type SaleFromOrderInput = {
+  id?: string;
+  createdAt?: string;
+  date?: string;
+  client?: string;
+  detail: string;
+  total: number;
+  status?: SaleStatus;
+  cashAmount?: number;
+  transferAmount?: number;
+  deliveryType: DeliveryType;
+  deliveryAddress?: string;
+  deliveryFee?: number;
+  deliveryPaymentMethod?: DeliveryPaymentMethod;
+  discountAmount?: number;
+  fulfillmentTime?: string;
+  orderItems: SaleOrderItem[];
+  quantity: number;
+  productName?: string;
 };
 
 export type WeeklySalesStats = {

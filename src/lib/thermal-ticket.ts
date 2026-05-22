@@ -54,7 +54,22 @@ export type TicketSection =
       summary: TicketTotalLine[];
       totalCollected: number;
       totalSales: number;
+      cashSnapshot?: {
+        cash: number;
+        debit: number;
+        total: number;
+      };
       sales: TicketItem[];
+    }
+  | {
+      type: "inventario";
+      title: string;
+      businessName: string;
+      dateRange: string;
+      summary: TicketTotalLine[];
+      totalLabel: string;
+      total: number;
+      items: TicketItem[];
     }
   | {
       type: "evento";
@@ -98,6 +113,7 @@ export type TicketOrderInput = {
 export type DailyReportTicketInput = {
   businessName?: string;
   paperSize: ReceiptPaperSize;
+  logoPath?: string;
   title?: string;
   dateRange: string;
   salesCount: number;
@@ -107,6 +123,11 @@ export type DailyReportTicketInput = {
   deliveryTotal: number;
   totalCollected: number;
   totalSales: number;
+  cashSnapshot?: {
+    cash: number;
+    debit: number;
+    total: number;
+  };
   sales?: {
     time: string;
     client: string;
@@ -119,6 +140,18 @@ export type DailyReportTicketInput = {
     quantity: number;
     total: number;
   }[];
+};
+
+export type InventoryReportTicketInput = {
+  businessName?: string;
+  paperSize: ReceiptPaperSize;
+  logoPath?: string;
+  title: string;
+  dateRange: string;
+  summary: TicketTotalLine[];
+  totalLabel: string;
+  total: number;
+  items: TicketItem[];
 };
 
 export type EventTicketInput = {
@@ -306,6 +339,7 @@ export const buildDailyReportTicketData = (report: DailyReportTicketInput): Tick
   return {
     businessName,
     paperSize: report.paperSize,
+    logoPath: report.logoPath,
     sections: [
       {
         type: "cierre-diario",
@@ -321,6 +355,7 @@ export const buildDailyReportTicketData = (report: DailyReportTicketInput): Tick
         ],
         totalCollected: report.totalCollected,
         totalSales: report.totalSales,
+        cashSnapshot: report.cashSnapshot,
         sales:
           report.productStats?.map((product) => ({
             name: product.name,
@@ -333,6 +368,28 @@ export const buildDailyReportTicketData = (report: DailyReportTicketInput): Tick
             price: sale.total,
             notes: [sale.status, sale.deliveryFee ? `Delivery ${formatTicketCurrency(sale.deliveryFee)}` : ""].filter(Boolean),
           })),
+      },
+    ],
+  };
+};
+
+export const buildInventoryReportTicketData = (report: InventoryReportTicketInput): TicketPrintJob => {
+  const businessName = report.businessName ?? defaultBusinessName;
+
+  return {
+    businessName,
+    paperSize: report.paperSize,
+    logoPath: report.logoPath,
+    sections: [
+      {
+        type: "inventario",
+        title: report.title,
+        businessName,
+        dateRange: report.dateRange,
+        summary: report.summary,
+        totalLabel: report.totalLabel,
+        total: report.total,
+        items: report.items,
       },
     ],
   };

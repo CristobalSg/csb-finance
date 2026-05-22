@@ -139,6 +139,14 @@ const formatSaleOrderItems = (sale: Sale) => {
   ] satisfies SaleOrderItem[];
 };
 
+const getSalePaymentLabel = (sale: Sale) => {
+  if (sale.status !== "mixto") {
+    return saleStatusLabels[sale.status];
+  }
+
+  return `${saleStatusLabels[sale.status]}: Efectivo ${formatCurrency(sale.cashAmount ?? 0)} · Debito ${formatCurrency(sale.transferAmount ?? 0)}`;
+};
+
 const getProductSalesStats = (sales: Sale[]) => {
   const products = new Map<string, { name: string; quantity: number; total: number }>();
 
@@ -238,10 +246,16 @@ export function SalesSection({
   onUpdateSale,
   onExport,
   onImport,
+  realMoneyTotals,
 }: {
   loading: boolean;
   sales: Sale[];
   receiptLogoPath: string;
+  realMoneyTotals: {
+    cash: number;
+    debit: number;
+    total: number;
+  };
   onDelete: (id: string) => void;
   onUpdateStatus: (id: string, status: SaleStatus, paymentAmounts?: { cashAmount?: number; transferAmount?: number }) => void;
   onUpdateSale: (id: string, updates: SaleUpdateInput) => void;
@@ -257,6 +271,7 @@ export function SalesSection({
   const [dailyReportDate, setDailyReportDate] = useState(getDateInputValue);
   const [salesReportPeriod, setSalesReportPeriod] = useState<SalesReportPeriod>("daily");
   const [dailyReportPaperSize, setDailyReportPaperSize] = useState<ReceiptPaperSize>("56mm");
+  const [includeRealMoneyStats, setIncludeRealMoneyStats] = useState(false);
   const [isDailyReportOpen, setIsDailyReportOpen] = useState(false);
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
   const [paymentSale, setPaymentSale] = useState<Sale | null>(null);
@@ -469,7 +484,7 @@ export function SalesSection({
           createdAt: receiptSale.createdAt,
           client: receiptSale.client,
           detail: receiptSale.detail,
-          paymentLabel: saleStatusLabels[receiptSale.status],
+          paymentLabel: getSalePaymentLabel(receiptSale),
           deliveryType: receiptSale.deliveryType ?? "retiro",
           deliveryAddress: receiptSale.deliveryAddress,
           deliveryFee: getSaleDeliveryFee(receiptSale),
@@ -492,6 +507,7 @@ export function SalesSection({
   const kitchenGroups = getKitchenGroups(receiptItems);
   const kitchenSummary = getKitchenSummary(receiptItems);
   const dailyReportRange = getSalesReportRange(salesReportPeriod, dailyReportDate);
+  const shouldIncludeRealMoneyStats = salesReportPeriod === "weekly" && includeRealMoneyStats;
   const dailyReportSales = useMemo(
     () =>
       sales
@@ -524,6 +540,7 @@ export function SalesSection({
       await printTicket(
         buildDailyReportTicketData({
           paperSize: dailyReportPaperSize,
+          logoPath: receiptLogoPath,
           title: getSalesReportTitle(salesReportPeriod),
           dateRange: `${formatReportDateTime(dailyReportRange.start)} a ${formatReportDateTime(dailyReportRange.end)}`,
           salesCount: dailyReportSales.length,
@@ -533,6 +550,13 @@ export function SalesSection({
           deliveryTotal: dailyReportTotals.delivery,
           totalCollected: dailyReportTotals.efectivo + dailyReportTotals.debito,
           totalSales: dailyReportTotals.total,
+          cashSnapshot: shouldIncludeRealMoneyStats
+            ? {
+                cash: realMoneyTotals.cash,
+                debit: realMoneyTotals.debit,
+                total: realMoneyTotals.total,
+              }
+            : undefined,
           sales:
             salesReportPeriod === "daily"
               ? dailyReportSales.map((sale) => ({
@@ -606,6 +630,27 @@ export function SalesSection({
               <span>Total ventas</span>
               <span className="shrink-0">{formatCurrency(dailyReportTotals.total)}</span>
             </div>
+
+            {shouldIncludeRealMoneyStats ? (
+              <>
+                <div className="my-3 border-t border-dashed border-black" />
+                <p className="mb-2 text-xs font-black uppercase">Dinero real</p>
+                <div className="receipt-cut space-y-1 text-xs font-bold">
+                  <div className="flex justify-between gap-2">
+                    <span>Efectivo real</span>
+                    <span className="shrink-0">{formatCurrency(realMoneyTotals.cash)}</span>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <span>Debito real</span>
+                    <span className="shrink-0">{formatCurrency(realMoneyTotals.debit)}</span>
+                  </div>
+                  <div className="flex justify-between gap-2 text-sm font-black">
+                    <span>Total real</span>
+                    <span className="shrink-0">{formatCurrency(realMoneyTotals.total)}</span>
+                  </div>
+                </div>
+              </>
+            ) : null}
 
             {salesReportPeriod === "daily" && dailyReportSales.length > 0 ? (
               <>
@@ -740,7 +785,7 @@ export function SalesSection({
             <div className="receipt-cut space-y-1 text-xs font-semibold">
               {receiptSale.client.trim() ? <p>Nombre: {receiptSale.client.trim()}</p> : null}
               {receiptSale.fulfillmentTime?.trim() ? <p>Hora entrega: {receiptSale.fulfillmentTime.trim()}</p> : null}
-              <p>Pago: {saleStatusLabels[receiptSale.status]}</p>
+              <p>Pago: {getSalePaymentLabel(receiptSale)}</p>
               <p>Entrega: {receiptSale.deliveryType === "delivery" ? "Delivery" : "Retiro"}</p>
               {receiptSale.deliveryType === "delivery" && receiptSale.deliveryAddress?.trim() ? (
                 <p>Direccion: {receiptSale.deliveryAddress.trim()}</p>
@@ -930,6 +975,7 @@ export function SalesSection({
                   setIsDailyReportOpen(false);
                   setDailyReportPaperSize("56mm");
                   setSalesReportPeriod("daily");
+                  setIncludeRealMoneyStats(false);
                 }}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
                 aria-label="Cerrar cierre diario"
@@ -945,7 +991,12 @@ export function SalesSection({
                   <button
                     key={period}
                     type="button"
-                    onClick={() => setSalesReportPeriod(period)}
+                    onClick={() => {
+                      setSalesReportPeriod(period);
+                      if (period !== "weekly") {
+                        setIncludeRealMoneyStats(false);
+                      }
+                    }}
                     className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
                       salesReportPeriod === period ? "bg-fuchsia-600 text-white" : "text-rose-700"
                     }`}
@@ -992,6 +1043,23 @@ export function SalesSection({
               </div>
             </div>
 
+            {salesReportPeriod === "weekly" ? (
+              <label className="mt-4 flex items-start gap-3 rounded-[1.25rem] border border-rose-100 bg-white/80 p-4 text-sm text-rose-800">
+                <input
+                  type="checkbox"
+                  checked={includeRealMoneyStats}
+                  onChange={(event) => setIncludeRealMoneyStats(event.target.checked)}
+                  className="mt-1 h-4 w-4 accent-fuchsia-600"
+                />
+                <span>
+                  <span className="block font-black text-rose-950">Agregar dinero real</span>
+                  <span className="mt-1 block text-xs font-semibold text-rose-600">
+                    Incluye efectivo real, debito real y total real en el cierre impreso.
+                  </span>
+                </span>
+              </label>
+            ) : null}
+
             <div className="mt-4 rounded-[1.25rem] bg-rose-50/60 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">
                 {salesReportPeriod === "daily" ? "Turno" : "Periodo"}
@@ -1021,6 +1089,22 @@ export function SalesSection({
                   <span className="font-black">{formatCurrency(dailyReportTotals.efectivo + dailyReportTotals.debito)}</span>
                 </div>
               </div>
+              {shouldIncludeRealMoneyStats ? (
+                <div className="mt-3 grid gap-2 rounded-[1rem] border border-fuchsia-100 bg-white/80 p-3 text-sm text-rose-800 sm:grid-cols-3">
+                  <div>
+                    <span className="block text-xs font-semibold uppercase tracking-[0.12em] text-rose-500">Efectivo real</span>
+                    <span className="mt-1 block font-black">{formatCurrency(realMoneyTotals.cash)}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs font-semibold uppercase tracking-[0.12em] text-rose-500">Debito real</span>
+                    <span className="mt-1 block font-black">{formatCurrency(realMoneyTotals.debit)}</span>
+                  </div>
+                  <div>
+                    <span className="block text-xs font-semibold uppercase tracking-[0.12em] text-rose-500">Total real</span>
+                    <span className="mt-1 block font-black text-fuchsia-700">{formatCurrency(realMoneyTotals.total)}</span>
+                  </div>
+                </div>
+              ) : null}
               <p className="mt-3 text-xs font-semibold text-rose-600">
                 {formatNumber(dailyReportSales.length)} ventas en el rango seleccionado.
               </p>
@@ -1051,6 +1135,7 @@ export function SalesSection({
                   setIsDailyReportOpen(false);
                   setDailyReportPaperSize("56mm");
                   setSalesReportPeriod("daily");
+                  setIncludeRealMoneyStats(false);
                 }}
                 className="rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
               >
@@ -1250,7 +1335,7 @@ export function SalesSection({
 
                   <div>
                     <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Pago delivery</p>
-                    <div className="mt-2 grid gap-2 rounded-[1rem] bg-rose-50 p-1 sm:grid-cols-3">
+                    <div className="mt-2 grid gap-2 rounded-[1rem] bg-rose-50 p-1 sm:grid-cols-4">
                       {Object.entries(deliveryPaymentMethodLabels).map(([value, label]) => (
                         <button
                           key={value}
@@ -1309,6 +1394,7 @@ export function SalesSection({
             setDailyReportDate(getDateInputValue());
             setSalesReportPeriod("daily");
             setDailyReportPaperSize("56mm");
+            setIncludeRealMoneyStats(false);
             setIsDailyReportOpen(true);
           }}
           className="inline-flex items-center gap-2 rounded-full border border-fuchsia-200 bg-fuchsia-50 px-5 py-3 text-sm font-semibold text-fuchsia-700 transition hover:border-fuchsia-300 hover:bg-white"

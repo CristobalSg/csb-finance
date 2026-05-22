@@ -13,7 +13,7 @@ import {
 import { formatCurrency } from "../lib/format";
 import { printTicket } from "../lib/thermal-printer";
 import { buildTicketData, type ReceiptPaperSize } from "../lib/thermal-ticket";
-import type { DeliveryPaymentMethod, DeliveryType, SaleOrderItem } from "../types";
+import type { DeliveryPaymentMethod, DeliveryType, SaleFromOrderInput, SaleOrderItem } from "../types";
 
 type CartItem = {
   id: string;
@@ -55,20 +55,7 @@ export function HomeSection({
 }: {
   activeMenuCategory: OrderMenuCategoryId;
   receiptLogoPath: string;
-  onRegisterSale: (sale: {
-    client?: string;
-    detail: string;
-    total: number;
-    deliveryType: DeliveryType;
-    deliveryAddress?: string;
-    deliveryFee?: number;
-    deliveryPaymentMethod?: DeliveryPaymentMethod;
-    discountAmount?: number;
-    fulfillmentTime?: string;
-    orderItems: SaleOrderItem[];
-    quantity: number;
-    productName?: string;
-  }) => Promise<boolean>;
+  onRegisterSale: (sale: SaleFromOrderInput) => Promise<boolean>;
 }) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
@@ -1119,7 +1106,7 @@ export function HomeSection({
 
                       <div>
                         <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Pago delivery</p>
-                        <div className="mt-2 grid gap-2 rounded-[1rem] bg-rose-50 p-1 sm:grid-cols-3">
+                        <div className="mt-2 grid gap-2 rounded-[1rem] bg-rose-50 p-1 sm:grid-cols-4">
                           {Object.entries(deliveryPaymentMethodLabels).map(([value, label]) => (
                             <button
                               key={value}

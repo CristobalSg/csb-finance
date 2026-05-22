@@ -734,7 +734,8 @@ const printThanks = async (printer, section, columns, paperSize) => {
   writeLine(printer);
 };
 
-const printDailyReport = (printer, section, columns) => {
+const printDailyReport = async (printer, section, columns, paperSize, logoPath) => {
+  await printReceiptLogo(printer, paperSize, logoPath);
   writeCentered(printer, section.title || "Cierre diario", columns, true);
   writeCentered(printer, section.businessName || "Ceese Burger's", columns);
   writeCentered(printer, section.dateRange || "", columns);
@@ -751,9 +752,42 @@ const printDailyReport = (printer, section, columns) => {
   writeLine(printer, twoColumnLine("Total ventas", formatCurrency(section.totalSales), columns));
   setBold(printer, false);
 
+  if (section.cashSnapshot) {
+    writeSeparator(printer, columns);
+    writeCentered(printer, "Dinero real", columns, true);
+    writeLine(printer, twoColumnLine("Efectivo real", formatCurrency(section.cashSnapshot.cash), columns));
+    writeLine(printer, twoColumnLine("Debito real", formatCurrency(section.cashSnapshot.debit), columns));
+    setBold(printer, true);
+    writeLine(printer, twoColumnLine("Total real", formatCurrency(section.cashSnapshot.total), columns));
+    setBold(printer, false);
+  }
+
   if (section.sales?.length) {
     writeSeparator(printer, columns);
     printItems(printer, section.sales, columns, true);
+  }
+};
+
+const printInventoryReport = async (printer, section, columns, paperSize, logoPath) => {
+  await printReceiptLogo(printer, paperSize, logoPath);
+  writeCentered(printer, section.title || "Inventario", columns, true);
+  writeCentered(printer, section.businessName || "Ceese Burger's", columns);
+  writeCentered(printer, section.dateRange || "", columns);
+  writeSeparator(printer, columns);
+
+  for (const line of section.summary || []) {
+    const value = ["Registros", "Productos", "Unidades"].includes(line.label) ? String(line.value) : formatCurrency(line.value);
+    writeLine(printer, twoColumnLine(line.label, value, columns));
+  }
+
+  writeSeparator(printer, columns);
+  setBold(printer, true);
+  writeLine(printer, twoColumnLine(section.totalLabel || "Total", formatCurrency(section.total), columns));
+  setBold(printer, false);
+
+  if (section.items?.length) {
+    writeSeparator(printer, columns);
+    printItems(printer, section.items, columns, true);
   }
 };
 
@@ -845,7 +879,9 @@ const printEscpos = async (job) => {
     } else if (section.type === "gracias") {
       await printThanks(printer, section, columns, job.paperSize);
     } else if (section.type === "cierre-diario") {
-      printDailyReport(printer, section, columns);
+      await printDailyReport(printer, section, columns, job.paperSize, job.logoPath);
+    } else if (section.type === "inventario") {
+      await printInventoryReport(printer, section, columns, job.paperSize, job.logoPath);
     } else if (section.type === "evento") {
       await printEventTicket(printer, section, columns, job.paperSize, job.logoPath);
     }

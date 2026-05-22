@@ -7,7 +7,17 @@ import { formatCurrency, formatNumber } from "../lib/format";
 import { fetchOrders, updateOrderStatus } from "../lib/orders";
 import { printTicket } from "../lib/thermal-printer";
 import { buildTicketData, type ReceiptPaperSize, type TicketSectionSelection } from "../lib/thermal-ticket";
-import type { DeliveryPaymentMethod, DeliveryType, SaleOrderFamilyBurger, SaleOrderItem, SupabaseOrder, SupabaseOrderItem, SupabaseOrderStatus } from "../types";
+import type {
+  DeliveryPaymentMethod,
+  DeliveryType,
+  SaleFromOrderInput,
+  SaleOrderFamilyBurger,
+  SaleOrderItem,
+  SaleStatus,
+  SupabaseOrder,
+  SupabaseOrderItem,
+  SupabaseOrderStatus,
+} from "../types";
 
 const statusOptions: SupabaseOrderStatus[] = ["pending", "confirmed", "preparing", "ready", "delivered", "cancelled"];
 const pageSize = 5;
@@ -144,6 +154,50 @@ const getOrderPaymentLabel = (order: SupabaseOrder) => {
 
 const getDeliveryPaymentMethod = (order: SupabaseOrder): DeliveryPaymentMethod | undefined =>
   order.order_type === "delivery" && order.payment_method === "cash" ? "efectivo" : undefined;
+
+const getOrderSaleStatus = (order: SupabaseOrder): SaleStatus => (order.payment_method === "transfer" ? "transferencia" : "efectivo");
+
+const getOrderSalePaymentAmounts = (order: SupabaseOrder) =>
+  order.payment_method === "transfer"
+    ? { transferAmount: order.total }
+    : { cashAmount: order.total };
+
+const getLocalDateFromIso = (value: string) => {
+  const parsedDate = new Date(value);
+
+  if (Number.isNaN(parsedDate.getTime())) {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  const year = parsedDate.getFullYear();
+  const month = `${parsedDate.getMonth() + 1}`.padStart(2, "0");
+  const day = `${parsedDate.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const buildSaleFromOrder = (order: SupabaseOrder): SaleFromOrderInput => {
+  const items = mapOrderItemsToSaleItems(order.items);
+  const deliveryType: DeliveryType = order.order_type === "delivery" ? "delivery" : "retiro";
+  const productName = items.map((item) => `${item.quantity}x ${item.name}`).join(" | ");
+
+  return {
+    id: `order:${order.id}`,
+    createdAt: order.created_at,
+    date: getLocalDateFromIso(order.created_at),
+    client: order.customer_name,
+    detail: order.whatsapp_message || productName,
+    total: order.total,
+    status: getOrderSaleStatus(order),
+    ...getOrderSalePaymentAmounts(order),
+    deliveryType,
+    deliveryAddress: order.address ?? "",
+    deliveryFee: order.delivery_fee,
+    deliveryPaymentMethod: getDeliveryPaymentMethod(order),
+    orderItems: items,
+    quantity: Math.max(1, order.total_items || items.reduce((total, item) => total + item.quantity, 0)),
+    productName,
+  };
+};
 
 function StatusPill({ status }: { status: SupabaseOrderStatus }) {
   return (
@@ -306,7 +360,15 @@ function PrintOrderModal({
   );
 }
 
-export function OrdersManagementPage({ refreshToken = 0, receiptLogoPath }: { refreshToken?: number; receiptLogoPath: string }) {
+export function OrdersManagementPage({
+  refreshToken = 0,
+  receiptLogoPath,
+  onRegisterSale,
+}: {
+  refreshToken?: number;
+  receiptLogoPath: string;
+  onRegisterSale: (sale: SaleFromOrderInput) => Promise<boolean>;
+}) {
   const [orders, setOrders] = useState<SupabaseOrder[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -357,6 +419,16 @@ export function OrdersManagementPage({ refreshToken = 0, receiptLogoPath }: { re
     setError(null);
 
     try {
+      const order = orders.find((item) => item.id === orderId);
+
+      if (status === "confirmed" && order) {
+        const wasSaleRegistered = await onRegisterSale(buildSaleFromOrder(order));
+
+        if (!wasSaleRegistered) {
+          return;
+        }
+      }
+
       const updatedOrder = await updateOrderStatus(orderId, status);
       setOrders((current) => current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)));
     } catch (statusError) {
@@ -418,6 +490,12 @@ export function OrdersManagementPage({ refreshToken = 0, receiptLogoPath }: { re
           total: printOrder.total,
         }),
       );
+
+      const wasSaleRegistered = await onRegisterSale(buildSaleFromOrder(printOrder));
+
+      if (!wasSaleRegistered) {
+        return;
+      }
 
       const updatedOrder = await updateOrderStatus(printOrder.id, "confirmed");
       setOrders((current) => current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)));

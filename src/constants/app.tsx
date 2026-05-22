@@ -66,9 +66,10 @@ export const saleStatusLabels: Record<SaleStatus, string> = {
 };
 
 export const deliveryPaymentMethodLabels: Record<DeliveryPaymentMethod, string> = {
-  efectivo: "Efectivo",
-  debito: "Debito",
-  nosotros: "Nosotros lo hacemos",
+  efectivo: "Efectivo caja",
+  debito: "Debito caja",
+  nosotros: "Nosotros",
+  cliente_efectivo: "Cliente efectivo",
 };
 
 export const purchaseEntryTypeLabels: Record<PurchaseEntryType, string> = {

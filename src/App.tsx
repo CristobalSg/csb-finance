@@ -68,6 +68,11 @@ export default function App() {
       loading={finance.loading}
       sales={finance.sales}
       receiptLogoPath={receiptLogoPath}
+      realMoneyTotals={{
+        cash: finance.totals.availableCash,
+        debit: finance.totals.availableDebit,
+        total: finance.totals.availableTotal,
+      }}
       onDelete={(id) => void finance.handleDelete("sales", id)}
       onUpdateStatus={(id, status, paymentAmounts) => void finance.updateSaleStatus(id, status, paymentAmounts)}
       onUpdateSale={(id, updates) => void finance.updateSaleDetails(id, updates)}
@@ -106,6 +111,8 @@ export default function App() {
       <InventorySection
         loading={finance.loading}
         inventory={finance.inventory}
+        purchases={finance.purchases}
+        receiptLogoPath={receiptLogoPath}
         onDelete={(id) => void finance.handleDelete("inventory", id)}
         onExport={finance.exportInventoryCsv}
       />
@@ -225,7 +232,11 @@ export default function App() {
               </div>
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-5">
-              <OrdersManagementPage refreshToken={ordersRefreshToken} receiptLogoPath={receiptLogoPath} />
+              <OrdersManagementPage
+                refreshToken={ordersRefreshToken}
+                receiptLogoPath={receiptLogoPath}
+                onRegisterSale={finance.addSaleFromOrder}
+              />
             </div>
           </div>
         </div>
