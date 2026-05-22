@@ -13,6 +13,7 @@
     "escpos": "^3.0.0-alpha.6",
     "escpos-network": "^3.0.0-alpha.5",
     "escpos-usb": "^3.0.0-alpha.4",
-    "express": "^4.18.3"
+    "express": "^4.18.3",
+    "ws": "^8.20.1"
   }
 }

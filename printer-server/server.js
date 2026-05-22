@@ -1,6 +1,7 @@
 import cors from "cors";
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
+import WebSocket from "ws";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { writeFile, unlink } from "node:fs/promises";
@@ -136,6 +137,9 @@ const getSupabaseClient = () => {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
+    },
+    realtime: {
+      transport: WebSocket,
     },
   });
 
