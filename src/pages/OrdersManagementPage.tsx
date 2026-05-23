@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PaginationControls } from "../components/common/PaginationControls";
 import { PrintIcon, XIcon } from "../components/icons";
-import { shellCardClass } from "../constants/app";
+import { deliveryPaymentMethodLabels, shellCardClass } from "../constants/app";
 import { formatCurrency, formatNumber } from "../lib/format";
 import { fetchOrders, updateOrderStatus } from "../lib/orders";
 import { printTicket } from "../lib/thermal-printer";
@@ -13,7 +13,6 @@ import type {
   SaleFromOrderInput,
   SaleOrderFamilyBurger,
   SaleOrderItem,
-  SaleStatus,
   SupabaseOrder,
   SupabaseOrderItem,
   SupabaseOrderStatus,
@@ -140,27 +139,8 @@ const mapOrderItemsToSaleItems = (items: SupabaseOrderItem[]): SaleOrderItem[] =
     };
   });
 
-const getOrderPaymentLabel = (order: SupabaseOrder) => {
-  if (order.payment_method === "transfer") {
-    return "Transferencia";
-  }
-
-  if (order.cash_payment_type === "amount" && order.cash_amount) {
-    return `Efectivo ${formatCurrency(order.cash_amount)}`;
-  }
-
-  return "Efectivo";
-};
-
 const getDeliveryPaymentMethod = (order: SupabaseOrder): DeliveryPaymentMethod | undefined =>
   order.order_type === "delivery" && order.payment_method === "cash" ? "efectivo" : undefined;
-
-const getOrderSaleStatus = (order: SupabaseOrder): SaleStatus => (order.payment_method === "transfer" ? "transferencia" : "efectivo");
-
-const getOrderSalePaymentAmounts = (order: SupabaseOrder) =>
-  order.payment_method === "transfer"
-    ? { transferAmount: order.total }
-    : { cashAmount: order.total };
 
 const getExplicitOrderDetail = (order: SupabaseOrder) => {
   const fields = [
@@ -194,10 +174,16 @@ const getLocalDateFromIso = (value: string) => {
   return `${year}-${month}-${day}`;
 };
 
-const buildSaleFromOrder = (order: SupabaseOrder): SaleFromOrderInput => {
+const getInitialOrderDeliveryFee = (order: SupabaseOrder) => (order.delivery_fee > 0 ? order.delivery_fee : 2500);
+
+const buildSaleFromOrder = (
+  order: SupabaseOrder,
+  options: { deliveryFee?: number; deliveryPaymentMethod?: DeliveryPaymentMethod; total?: number } = {},
+): SaleFromOrderInput => {
   const items = mapOrderItemsToSaleItems(order.items);
   const deliveryType: DeliveryType = order.order_type === "delivery" ? "delivery" : "retiro";
   const productName = items.map((item) => `${item.quantity}x ${item.name}`).join(" | ");
+  const deliveryFee = deliveryType === "delivery" ? options.deliveryFee ?? order.delivery_fee : 0;
 
   return {
     id: `order:${order.id}`,
@@ -205,13 +191,12 @@ const buildSaleFromOrder = (order: SupabaseOrder): SaleFromOrderInput => {
     date: getLocalDateFromIso(order.created_at),
     client: order.customer_name,
     detail: getExplicitOrderDetail(order),
-    total: order.total,
-    status: getOrderSaleStatus(order),
-    ...getOrderSalePaymentAmounts(order),
+    total: options.total ?? order.total,
+    status: "pendiente",
     deliveryType,
     deliveryAddress: order.address ?? "",
-    deliveryFee: order.delivery_fee,
-    deliveryPaymentMethod: getDeliveryPaymentMethod(order),
+    deliveryFee,
+    deliveryPaymentMethod: deliveryType === "delivery" ? options.deliveryPaymentMethod ?? getDeliveryPaymentMethod(order) : undefined,
     orderItems: items,
     quantity: Math.max(1, order.total_items || items.reduce((total, item) => total + item.quantity, 0)),
     productName,
@@ -279,21 +264,31 @@ function PrintOrderModal({
   order,
   paperSize,
   sections,
+  deliveryFee,
+  deliveryPaymentMethod,
   isPrinting,
   onClose,
   onPaperSizeChange,
   onSectionsChange,
+  onDeliveryFeeChange,
+  onDeliveryPaymentMethodChange,
   onConfirm,
 }: {
   order: SupabaseOrder;
   paperSize: ReceiptPaperSize;
   sections: TicketSectionSelection;
+  deliveryFee: string;
+  deliveryPaymentMethod: DeliveryPaymentMethod;
   isPrinting: boolean;
   onClose: () => void;
   onPaperSizeChange: (paperSize: ReceiptPaperSize) => void;
   onSectionsChange: (sections: TicketSectionSelection) => void;
+  onDeliveryFeeChange: (deliveryFee: string) => void;
+  onDeliveryPaymentMethodChange: (deliveryPaymentMethod: DeliveryPaymentMethod) => void;
   onConfirm: () => void;
 }) {
+  const isDelivery = order.order_type === "delivery";
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-stone-950/55 px-4 py-8 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-[2rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.28)]">
@@ -319,6 +314,39 @@ function PrintOrderModal({
           </p>
           {order.address ? <p className="mt-2 text-xs font-semibold text-rose-700">{order.address}</p> : null}
         </div>
+
+        {isDelivery ? (
+          <div className="mt-4 space-y-3">
+            <label className="block space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Valor delivery</span>
+              <input
+                value={deliveryFee}
+                onChange={(event) => onDeliveryFeeChange(event.target.value.replace(/\D/g, ""))}
+                inputMode="numeric"
+                className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                placeholder="2500"
+              />
+            </label>
+
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Pago delivery</p>
+              <div className="mt-2 grid gap-2 rounded-[1rem] bg-rose-50 p-1 sm:grid-cols-2">
+                {Object.entries(deliveryPaymentMethodLabels).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => onDeliveryPaymentMethodChange(value as DeliveryPaymentMethod)}
+                    className={`rounded-[0.8rem] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+                      deliveryPaymentMethod === value ? "bg-fuchsia-600 text-white" : "text-rose-700"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-4 grid grid-cols-3 gap-2">
           {printSectionOptions.map((option) => (
@@ -397,6 +425,8 @@ export function OrdersManagementPage({
   const [printOrder, setPrintOrder] = useState<SupabaseOrder | null>(null);
   const [printSections, setPrintSections] = useState<TicketSectionSelection>(defaultPrintSections);
   const [printPaperSize, setPrintPaperSize] = useState<ReceiptPaperSize>("80mm");
+  const [printDeliveryFee, setPrintDeliveryFee] = useState("2500");
+  const [printDeliveryPaymentMethod, setPrintDeliveryPaymentMethod] = useState<DeliveryPaymentMethod>("efectivo");
   const [isPrinting, setIsPrinting] = useState(false);
 
   const selectedOrder = useMemo(
@@ -441,6 +471,11 @@ export function OrdersManagementPage({
       const order = orders.find((item) => item.id === orderId);
 
       if (status === "confirmed" && order) {
+        if (order.order_type === "delivery") {
+          openPrintModal(order);
+          return;
+        }
+
         const wasSaleRegistered = await onRegisterSale(buildSaleFromOrder(order));
 
         if (!wasSaleRegistered) {
@@ -461,6 +496,8 @@ export function OrdersManagementPage({
     setPrintOrder(order);
     setPrintSections(defaultPrintSections);
     setPrintPaperSize("80mm");
+    setPrintDeliveryFee(order.order_type === "delivery" ? String(getInitialOrderDeliveryFee(order)) : "");
+    setPrintDeliveryPaymentMethod(getDeliveryPaymentMethod(order) ?? "efectivo");
   };
 
   const closePrintModal = () => {
@@ -471,6 +508,8 @@ export function OrdersManagementPage({
     setPrintOrder(null);
     setPrintSections(defaultPrintSections);
     setPrintPaperSize("80mm");
+    setPrintDeliveryFee("2500");
+    setPrintDeliveryPaymentMethod("efectivo");
   };
 
   const handleConfirmPrint = async () => {
@@ -490,6 +529,14 @@ export function OrdersManagementPage({
       const deliveryType: DeliveryType = printOrder.order_type === "delivery" ? "delivery" : "retiro";
       const items = mapOrderItemsToSaleItems(printOrder.items);
       const productTotal = items.reduce((total, item) => total + item.total, 0);
+      const deliveryFee = deliveryType === "delivery" ? Number.parseInt(printDeliveryFee, 10) || 0 : 0;
+      const baseTotal = deliveryType === "delivery" ? Math.max(0, printOrder.total - printOrder.delivery_fee) : printOrder.total;
+      const total = baseTotal + deliveryFee;
+
+      if (deliveryType === "delivery" && deliveryFee <= 0) {
+        window.alert("Ingresa el valor del delivery antes de confirmar.");
+        return;
+      }
 
       await printTicket(
         buildTicketData({
@@ -498,19 +545,25 @@ export function OrdersManagementPage({
           sections: printSections,
           createdAt: printOrder.created_at,
           client: printOrder.customer_name,
-          detail: printOrder.whatsapp_message,
-          paymentLabel: getOrderPaymentLabel(printOrder),
+          detail: getExplicitOrderDetail(printOrder),
+          paymentLabel: "Pendiente",
           deliveryType,
           deliveryAddress: printOrder.address ?? "",
-          deliveryFee: printOrder.delivery_fee,
-          deliveryPaymentMethod: getDeliveryPaymentMethod(printOrder),
+          deliveryFee,
+          deliveryPaymentMethod: deliveryType === "delivery" ? printDeliveryPaymentMethod : undefined,
           items,
           productTotal,
-          total: printOrder.total,
+          total,
         }),
       );
 
-      const wasSaleRegistered = await onRegisterSale(buildSaleFromOrder(printOrder));
+      const wasSaleRegistered = await onRegisterSale(
+        buildSaleFromOrder(printOrder, {
+          deliveryFee,
+          deliveryPaymentMethod: deliveryType === "delivery" ? printDeliveryPaymentMethod : undefined,
+          total,
+        }),
+      );
 
       if (!wasSaleRegistered) {
         return;
@@ -522,6 +575,8 @@ export function OrdersManagementPage({
       setPrintOrder(null);
       setPrintSections(defaultPrintSections);
       setPrintPaperSize("80mm");
+      setPrintDeliveryFee("2500");
+      setPrintDeliveryPaymentMethod("efectivo");
     } catch (printError) {
       setError(printError instanceof Error ? printError.message : "No fue posible imprimir y confirmar el pedido.");
       window.alert(printError instanceof Error ? printError.message : "No fue posible imprimir y confirmar el pedido.");
@@ -695,10 +750,14 @@ export function OrdersManagementPage({
           order={printOrder}
           paperSize={printPaperSize}
           sections={printSections}
+          deliveryFee={printDeliveryFee}
+          deliveryPaymentMethod={printDeliveryPaymentMethod}
           isPrinting={isPrinting}
           onClose={closePrintModal}
           onPaperSizeChange={setPrintPaperSize}
           onSectionsChange={setPrintSections}
+          onDeliveryFeeChange={setPrintDeliveryFee}
+          onDeliveryPaymentMethodChange={setPrintDeliveryPaymentMethod}
           onConfirm={handleConfirmPrint}
         />
       ) : null}
