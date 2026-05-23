@@ -162,6 +162,25 @@ const getOrderSalePaymentAmounts = (order: SupabaseOrder) =>
     ? { transferAmount: order.total }
     : { cashAmount: order.total };
 
+const getExplicitOrderDetail = (order: SupabaseOrder) => {
+  const fields = [
+    order.metadata?.detail,
+    order.metadata?.note,
+    order.metadata?.notes,
+    order.metadata?.orderDetail,
+    order.metadata?.customerNote,
+    order.metadata?.customer_note,
+    order.metadata?.comment,
+    order.metadata?.comments,
+    order.metadata?.instructions,
+    order.metadata?.specialInstructions,
+    order.metadata?.special_instructions,
+  ];
+
+  const detail = fields.find((value): value is string => typeof value === "string" && value.trim().length > 0);
+  return detail?.trim() ?? "";
+};
+
 const getLocalDateFromIso = (value: string) => {
   const parsedDate = new Date(value);
 
@@ -185,7 +204,7 @@ const buildSaleFromOrder = (order: SupabaseOrder): SaleFromOrderInput => {
     createdAt: order.created_at,
     date: getLocalDateFromIso(order.created_at),
     client: order.customer_name,
-    detail: order.whatsapp_message || productName,
+    detail: getExplicitOrderDetail(order),
     total: order.total,
     status: getOrderSaleStatus(order),
     ...getOrderSalePaymentAmounts(order),
