@@ -32,6 +32,8 @@ export function DashboardSection({
     allTimeMovementsCount: number;
     cashExpenses: number;
     debitExpenses: number;
+    deliveryCashToDebitMovement: number;
+    deliveryDebitToCashMovement: number;
     availableCash: number;
     availableDebit: number;
     availableTotal: number;
@@ -139,13 +141,13 @@ export function DashboardSection({
         <StatCard
           label="Disponible efectivo"
           value={formatCurrency(totals.availableCash)}
-          hint={`Inicial: ${formatCurrency(totals.initialCashBalance)} · Ingresos: ${formatCurrency(totals.cashIncome)} · Egresos: ${formatCurrency(totals.cashExpenses)}`}
+          hint={`Inicial: ${formatCurrency(totals.initialCashBalance)} · Ventas: ${formatCurrency(totals.cashIncome)} · Egresos: ${formatCurrency(totals.cashExpenses)} · A debito: ${formatCurrency(totals.deliveryCashToDebitMovement)} · Desde debito: ${formatCurrency(totals.deliveryDebitToCashMovement)}`}
           accent="bg-gradient-to-r from-pink-300 to-rose-500"
         />
         <StatCard
           label="Disponible debito"
           value={formatCurrency(totals.availableDebit)}
-          hint={`Inicial: ${formatCurrency(totals.initialDebitBalance)} · Ingresos: ${formatCurrency(totals.transferIncome)} · Egresos: ${formatCurrency(totals.debitExpenses)}`}
+          hint={`Inicial: ${formatCurrency(totals.initialDebitBalance)} · Ventas: ${formatCurrency(totals.transferIncome)} · Desde efectivo: ${formatCurrency(totals.deliveryCashToDebitMovement)} · A efectivo: ${formatCurrency(totals.deliveryDebitToCashMovement)} · Egresos: ${formatCurrency(totals.debitExpenses)}`}
           accent="bg-gradient-to-r from-pink-400 to-fuchsia-600"
         />
       </div>

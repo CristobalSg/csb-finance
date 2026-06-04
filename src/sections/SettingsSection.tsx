@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { MoonIcon, PrintIcon, SunIcon } from "../components/icons";
 import { shellCardClass } from "../constants/app";
+import { formatCurrency } from "../lib/format";
 import { receiptLogoOptions } from "../lib/receipt-settings";
 import { printTicket } from "../lib/thermal-printer";
 import { buildTestTicketData, buildThanksTestTicketData, type ReceiptPaperSize } from "../lib/thermal-ticket";
@@ -25,20 +26,49 @@ const themeOptions: Array<{
 export function SettingsSection({
   theme,
   receiptLogoPath,
+  initialBalances,
   onExport,
   onClearAllData,
   onThemeChange,
   onReceiptLogoChange,
+  onInitialBalancesChange,
 }: {
   theme: AppTheme;
   receiptLogoPath: string;
+  initialBalances: {
+    cash: number;
+    debit: number;
+    controlStartDate: string;
+  };
   onExport: () => void;
   onClearAllData: () => void;
   onThemeChange: (theme: AppTheme) => void;
   onReceiptLogoChange: (logoPath: string) => void;
+  onInitialBalancesChange: (balances: { cash: number; debit: number; controlStartDate: string }) => void;
 }) {
   const [paperSize, setPaperSize] = useState<ReceiptPaperSize>("80mm");
   const [isPrinting, setIsPrinting] = useState(false);
+  const [initialBalanceForm, setInitialBalanceForm] = useState({
+    cash: String(initialBalances.cash),
+    debit: String(initialBalances.debit),
+    controlStartDate: initialBalances.controlStartDate,
+  });
+
+  useEffect(() => {
+    setInitialBalanceForm({
+      cash: String(initialBalances.cash),
+      debit: String(initialBalances.debit),
+      controlStartDate: initialBalances.controlStartDate,
+    });
+  }, [initialBalances.cash, initialBalances.controlStartDate, initialBalances.debit]);
+
+  const handleSaveInitialBalances = () => {
+    onInitialBalancesChange({
+      cash: Number.parseInt(initialBalanceForm.cash, 10) || 0,
+      debit: Number.parseInt(initialBalanceForm.debit, 10) || 0,
+      controlStartDate: initialBalanceForm.controlStartDate,
+    });
+  };
 
   const handlePrintTest = async () => {
     if (isPrinting) {
@@ -95,7 +125,7 @@ export function SettingsSection({
           </div>
         </div>
 
-        <div className="grid gap-4 lg:grid-cols-3">
+        <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-4">
           <div className="rounded-2xl border border-rose-100 bg-white/70 p-4">
             <p className="text-sm font-bold text-rose-950">Apariencia</p>
             <p className="mt-2 text-sm text-rose-700/80">Elige el tema visual de la app.</p>
@@ -123,6 +153,54 @@ export function SettingsSection({
                 </button>
               ))}
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-rose-100 bg-white/70 p-4">
+            <p className="text-sm font-bold text-rose-950">Saldos iniciales</p>
+            <p className="mt-2 text-sm text-rose-700/80">
+              Ajusta el efectivo y debito base usados para calcular el dinero disponible.
+            </p>
+            <div className="mt-4 space-y-3">
+              <label className="block space-y-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Efectivo inicial</span>
+                <input
+                  value={initialBalanceForm.cash}
+                  onChange={(event) => setInitialBalanceForm((current) => ({ ...current, cash: event.target.value.replace(/\D/g, "") }))}
+                  inputMode="numeric"
+                  className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                  placeholder="0"
+                />
+              </label>
+              <label className="block space-y-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Debito inicial</span>
+                <input
+                  value={initialBalanceForm.debit}
+                  onChange={(event) => setInitialBalanceForm((current) => ({ ...current, debit: event.target.value.replace(/\D/g, "") }))}
+                  inputMode="numeric"
+                  className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                  placeholder="0"
+                />
+              </label>
+              <label className="block space-y-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Desde</span>
+                <input
+                  type="date"
+                  value={initialBalanceForm.controlStartDate}
+                  onChange={(event) => setInitialBalanceForm((current) => ({ ...current, controlStartDate: event.target.value }))}
+                  className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                />
+              </label>
+            </div>
+            <div className="mt-4 rounded-xl bg-rose-50/70 px-3 py-2 text-xs font-semibold text-rose-700">
+              Total inicial: {formatCurrency((Number.parseInt(initialBalanceForm.cash, 10) || 0) + (Number.parseInt(initialBalanceForm.debit, 10) || 0))}
+            </div>
+            <button
+              type="button"
+              onClick={handleSaveInitialBalances}
+              className="mt-4 inline-flex w-full items-center justify-center rounded-full bg-fuchsia-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-300/50 transition hover:bg-fuchsia-700"
+            >
+              Guardar saldos
+            </button>
           </div>
 
           <div className="rounded-2xl border border-rose-100 bg-white/70 p-4">

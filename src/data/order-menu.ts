@@ -131,10 +131,10 @@ export const orderMenuCategories: OrderMenuCategory[] = [
 
 export const orderMenuItems: OrderMenuItem[] = [
   { name: "Smoke Hause XL x2", price: 8000, category: "offers", image: productImages.offerSmoke },
-  { name: "Trio Familiar", price: 5990, category: "offers", image: productImages.comboFamiliar },
-  { name: "Trio Premium", price: 6390, category: "offers", image: productImages.fullBacon },
-  { name: "Trio Premium Smoke", price: 6690, category: "offers", image: productImages.comboSmoke },
-  { name: "2 Cs-Romp I Chica + 2 Cs-Smoke Criminal", price: 9490, category: "offers", image: productImages.burgerRompedietaI },
+  { name: "Trio Familiar", price: 5990, category: "offers" },
+  { name: "Trio Premium", price: 6390, category: "offers" },
+  { name: "Trio Premium Smoke", price: 6690, category: "offers" },
+  { name: "2 Cs-Romp I Chica + 2 Cs-Smoke Criminal", price: 9490, category: "offers" },
   {
     name: "Combo Clasico",
     price: 4490,

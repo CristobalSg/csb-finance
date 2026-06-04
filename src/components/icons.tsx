@@ -61,6 +61,14 @@ export function PrintIcon() {
   );
 }
 
+export function CheckIcon() {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20 6.5 9.5 17 4 11.5" />
+    </svg>
+  );
+}
+
 export function XIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">

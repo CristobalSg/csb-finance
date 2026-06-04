@@ -17,6 +17,7 @@ import { InventorySection } from "./sections/InventorySection";
 import { PurchasesSection } from "./sections/PurchasesSection";
 import { SalesSection } from "./sections/SalesSection";
 import { SettingsSection, type AppTheme } from "./sections/SettingsSection";
+import type { Sale } from "./types";
 
 const appThemes: AppTheme[] = ["light", "dark", "red-dark", "gray-dark"];
 
@@ -26,6 +27,7 @@ export default function App() {
   const [activeMenuCategory, setActiveMenuCategory] = useState<OrderMenuCategoryId>("offers");
   const [isSalesModalOpen, setIsSalesModalOpen] = useState(false);
   const [isOrdersModalOpen, setIsOrdersModalOpen] = useState(false);
+  const [saleCartDraft, setSaleCartDraft] = useState<Sale | null>(null);
   const [ordersRefreshToken, setOrdersRefreshToken] = useState(0);
   const [theme, setTheme] = useState<AppTheme>(() => {
     const savedTheme = localStorage.getItem("theme");
@@ -76,13 +78,26 @@ export default function App() {
       onDelete={(id) => void finance.handleDelete("sales", id)}
       onUpdateStatus={(id, status, paymentAmounts) => void finance.updateSaleStatus(id, status, paymentAmounts)}
       onUpdateSale={(id, updates) => void finance.updateSaleDetails(id, updates)}
+      onEditCart={(sale) => {
+        setSaleCartDraft(sale);
+        setIsSalesModalOpen(false);
+        setActiveSection("home");
+      }}
       onExport={finance.exportSalesCsv}
       onImport={finance.importSalesCsv}
     />
   );
 
   const contentBySection = {
-    home: <HomeSection activeMenuCategory={activeMenuCategory} receiptLogoPath={receiptLogoPath} onRegisterSale={finance.addSaleFromOrder} />,
+    home: (
+      <HomeSection
+        activeMenuCategory={activeMenuCategory}
+        receiptLogoPath={receiptLogoPath}
+        saleCartDraft={saleCartDraft}
+        onSaleCartDraftLoaded={() => setSaleCartDraft(null)}
+        onRegisterSale={finance.addSaleFromOrder}
+      />
+    ),
     dashboard: (
       <DashboardSection
         totals={finance.totals}
@@ -123,10 +138,12 @@ export default function App() {
       <SettingsSection
         theme={theme}
         receiptLogoPath={receiptLogoPath}
+        initialBalances={finance.initialBalances}
         onExport={finance.exportBackup}
         onClearAllData={() => void finance.handleClearAllData()}
         onThemeChange={setTheme}
         onReceiptLogoChange={setReceiptLogoPath}
+        onInitialBalancesChange={finance.updateInitialBalances}
       />
     ),
   } as const;
@@ -234,8 +251,11 @@ export default function App() {
             <div className="min-h-0 flex-1 overflow-auto p-3 sm:p-5">
               <OrdersManagementPage
                 refreshToken={ordersRefreshToken}
-                receiptLogoPath={receiptLogoPath}
                 onRegisterSale={finance.addSaleFromOrder}
+                onOrderConfirmed={() => {
+                  setIsOrdersModalOpen(false);
+                  setIsSalesModalOpen(true);
+                }}
               />
             </div>
           </div>

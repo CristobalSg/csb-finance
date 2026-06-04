@@ -102,6 +102,7 @@ export type Sale = {
   deliveryFee?: number;
   deliveryPaymentMethod?: DeliveryPaymentMethod;
   discountAmount?: number;
+  extraAmount?: number;
   fulfillmentTime?: string;
   orderItems?: SaleOrderItem[];
 };
@@ -139,6 +140,7 @@ export type SaleFromOrderInput = {
   deliveryFee?: number;
   deliveryPaymentMethod?: DeliveryPaymentMethod;
   discountAmount?: number;
+  extraAmount?: number;
   fulfillmentTime?: string;
   orderItems: SaleOrderItem[];
   quantity: number;
@@ -196,6 +198,11 @@ export type StoreName = "purchases" | "sales" | "inventory" | "stockMovements";
 
 export type BackupPayload = {
   exportedAt: string;
+  initialBalances?: {
+    cash: number;
+    debit: number;
+    controlStartDate: string;
+  };
   purchases: Purchase[];
   sales: Sale[];
   inventory: InventoryItem[];

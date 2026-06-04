@@ -1,6 +1,6 @@
 import { deliveryPaymentMethodLabels, movementCategoryLabels, movementPaymentMethodLabels, movementTypeLabels } from "../constants/app";
 import type { InventoryItem, Purchase, Sale } from "../types";
-import { getSaleDeliveryFee, getSaleDiscountAmount, getSaleNetTotal } from "./sales";
+import { getSaleDeliveryFee, getSaleDiscountAmount, getSaleExtraAmount, getSaleNetTotal } from "./sales";
 
 export const formatCurrency = (value: number) =>
   new Intl.NumberFormat("es-CL", {
@@ -66,6 +66,7 @@ export const salesRowsToCsv = (rows: Sale[]) => {
     "DELIVERY",
     "PAGO_DELIVERY",
     "DESCUENTO",
+    "AGREGADO",
     "TOTAL",
     "TOTAL_COBRADO",
     "PAGO_EFECTIVO",
@@ -102,6 +103,7 @@ export const salesRowsToCsv = (rows: Sale[]) => {
       getSaleDeliveryFee(row),
       row.deliveryPaymentMethod ? deliveryPaymentMethodLabels[row.deliveryPaymentMethod] : "",
       getSaleDiscountAmount(row),
+      getSaleExtraAmount(row),
       getSaleNetTotal(row),
       row.total,
       row.cashAmount ?? "",

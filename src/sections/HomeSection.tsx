@@ -1,7 +1,7 @@
-import { type CSSProperties, useMemo, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 
 import { ImageOffIcon, PrintIcon, XIcon } from "../components/icons";
-import { deliveryPaymentMethodLabels, shellCardClass } from "../constants/app";
+import { shellCardClass } from "../constants/app";
 import {
   familyComboBurgers,
   familyComboDescriptions,
@@ -13,7 +13,7 @@ import {
 import { formatCurrency } from "../lib/format";
 import { printTicket } from "../lib/thermal-printer";
 import { buildTicketData, type ReceiptPaperSize } from "../lib/thermal-ticket";
-import type { DeliveryPaymentMethod, DeliveryType, SaleFromOrderInput, SaleOrderItem } from "../types";
+import type { DeliveryType, Sale, SaleFromOrderInput, SaleOrderItem } from "../types";
 
 type CartItem = {
   id: string;
@@ -48,26 +48,42 @@ const defaultPrintSections = {
   thanks: false,
 };
 
+const findMenuItem = (name: string) => orderMenuItems.find((item) => item.name.toLowerCase() === name.toLowerCase());
+
+const createFamilyBurgerCustomization = (itemName: string) =>
+  familyComboBurgers[itemName]?.map((burger) => ({
+    id: crypto.randomUUID(),
+    label: burger.label,
+    name: burger.name,
+    removableIngredients: burger.removableIngredients,
+    removedIngredients: [],
+  }));
+
 export function HomeSection({
   activeMenuCategory,
   receiptLogoPath,
+  saleCartDraft,
+  onSaleCartDraftLoaded,
   onRegisterSale,
 }: {
   activeMenuCategory: OrderMenuCategoryId;
   receiptLogoPath: string;
+  saleCartDraft: Sale | null;
+  onSaleCartDraftLoaded: () => void;
   onRegisterSale: (sale: SaleFromOrderInput) => Promise<boolean>;
 }) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [editingCartSale, setEditingCartSale] = useState<Sale | null>(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
   const [isPrinting, setIsPrinting] = useState(false);
   const [printSections, setPrintSections] = useState(defaultPrintSections);
   const [receiptPaperSize, setReceiptPaperSize] = useState<ReceiptPaperSize>("80mm");
   const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
   const [discountAmount, setDiscountAmount] = useState("");
+  const [extraAmount, setExtraAmount] = useState("");
   const [deliveryType, setDeliveryType] = useState<DeliveryType>("retiro");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [deliveryFee, setDeliveryFee] = useState("");
-  const [deliveryPaymentMethod, setDeliveryPaymentMethod] = useState<DeliveryPaymentMethod>("efectivo");
   const [fulfillmentTime, setFulfillmentTime] = useState("");
   const [orderName, setOrderName] = useState("");
   const [orderDetail, setOrderDetail] = useState("");
@@ -88,8 +104,9 @@ export function HomeSection({
 
   const deliveryFeeAmount = deliveryType === "delivery" ? Number.parseInt(deliveryFee, 10) || 0 : 0;
   const discountValue = Math.min(Number.parseInt(discountAmount, 10) || 0, cartTotal);
+  const extraValue = Number.parseInt(extraAmount, 10) || 0;
   const discountedCartTotal = Math.max(0, cartTotal - discountValue);
-  const orderTotal = discountedCartTotal + deliveryFeeAmount;
+  const orderTotal = discountedCartTotal + extraValue + deliveryFeeAmount;
   const receiptPreviewStyle = { "--receipt-width": receiptPaperSize } as CSSProperties;
   const activeCategory = orderMenuCategories.find((category) => category.id === activeMenuCategory) ?? orderMenuCategories[0];
   const activeCategoryItems = orderMenuItems.filter((item) => item.category === activeCategory.id);
@@ -102,15 +119,6 @@ export function HomeSection({
       setDeliveryFee((current) => current || "2500");
     }
   };
-
-  const createFamilyBurgerCustomization = (itemName: string) =>
-    familyComboBurgers[itemName]?.map((burger) => ({
-      id: crypto.randomUUID(),
-      label: burger.label,
-      name: burger.name,
-      removableIngredients: burger.removableIngredients,
-      removedIngredients: [],
-    }));
 
   const createCustomization = (item: OrderMenuItem | CartItem): CartItemCustomization => {
     const familyBurgersForItem = createFamilyBurgerCustomization(item.name);
@@ -139,6 +147,80 @@ export function HomeSection({
       removedIngredients: [...burger.removedIngredients],
     })),
   });
+
+  const buildCartItemFromSaleItem = useCallback((saleItem: SaleOrderItem): CartItem => {
+    const menuItem = findMenuItem(saleItem.name);
+    const quantity = Math.max(1, Number(saleItem.quantity) || 1);
+    const unitPrice = Number(saleItem.unitPrice) || Math.round((Number(saleItem.total) || 0) / quantity);
+    const fallbackFamilyBurgers = createFamilyBurgerCustomization(saleItem.name);
+    const familyBurgers = saleItem.familyBurgers?.length
+      ? saleItem.familyBurgers.map((burger) => ({
+          id: crypto.randomUUID(),
+          label: burger.label,
+          name: burger.name,
+          removableIngredients:
+            fallbackFamilyBurgers?.find((familyBurger) => familyBurger.label === burger.label || familyBurger.name === burger.name)
+              ?.removableIngredients ?? [],
+          removedIngredients: [...(burger.removedIngredients ?? [])],
+        }))
+      : fallbackFamilyBurgers;
+
+    return {
+      id: crypto.randomUUID(),
+      name: saleItem.name,
+      price: unitPrice,
+      quantity,
+      drinkOptions: menuItem?.drinkOptions,
+      sauceOptions: menuItem?.sauceOptions,
+      removableIngredients: menuItem?.removableIngredients,
+      customizations: Array.from({ length: quantity }, () => ({
+        id: crypto.randomUUID(),
+        drink: saleItem.drink,
+        sauce: saleItem.sauce,
+        removedIngredients: [...(saleItem.removedIngredients ?? [])],
+        familyBurgers: familyBurgers?.map((burger) => ({
+          ...burger,
+          id: crypto.randomUUID(),
+          removedIngredients: [...burger.removedIngredients],
+        })),
+      })),
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!saleCartDraft) {
+      return;
+    }
+
+    const nextCartItems =
+      saleCartDraft.orderItems?.length
+        ? saleCartDraft.orderItems.map(buildCartItemFromSaleItem)
+        : [
+            buildCartItemFromSaleItem({
+              name: saleCartDraft.productName || saleCartDraft.detail || "Pedido",
+              quantity: saleCartDraft.quantity || 1,
+              unitPrice: Math.round(saleCartDraft.total / Math.max(1, saleCartDraft.quantity || 1)),
+              total: saleCartDraft.total,
+            }),
+          ];
+
+    setCartItems(nextCartItems);
+    setEditingCartSale(saleCartDraft);
+    setIsReceiptOpen(false);
+    setPrintSections(defaultPrintSections);
+    setReceiptPaperSize("80mm");
+    setIsAdvancedOpen(true);
+    setDiscountAmount(saleCartDraft.discountAmount ? String(saleCartDraft.discountAmount) : "");
+    setExtraAmount(saleCartDraft.extraAmount ? String(saleCartDraft.extraAmount) : "");
+    setDeliveryType(saleCartDraft.deliveryType ?? "retiro");
+    setDeliveryAddress(saleCartDraft.deliveryAddress ?? "");
+    setDeliveryFee(saleCartDraft.deliveryType === "delivery" ? String(saleCartDraft.deliveryFee ?? 2500) : "");
+    setFulfillmentTime(saleCartDraft.fulfillmentTime ?? "");
+    setOrderName(saleCartDraft.client ?? "");
+    setOrderDetail(saleCartDraft.detail ?? "");
+    closeProductModal();
+    onSaleCartDraftLoaded();
+  }, [buildCartItemFromSaleItem, saleCartDraft, onSaleCartDraftLoaded]);
 
   const openProductModal = (item: OrderMenuItem) => {
     setProductModalItem(item);
@@ -488,6 +570,7 @@ export function HomeSection({
             {deliveryType === "delivery" && deliveryAddress.trim() ? <p>Direccion: {deliveryAddress.trim()}</p> : null}
             {deliveryType === "delivery" ? <p>Valor delivery: {formatCurrency(deliveryFeeAmount)}</p> : null}
             {discountValue > 0 ? <p>Descuento: -{formatCurrency(discountValue)}</p> : null}
+            {extraValue > 0 ? <p>Agregado: {formatCurrency(extraValue)}</p> : null}
             {orderDetail.trim() ? <p>Detalle: {orderDetail.trim()}</p> : null}
           </div>
 
@@ -529,21 +612,35 @@ export function HomeSection({
                   <span className="shrink-0 whitespace-nowrap">-{formatCurrency(discountValue)}</span>
                 </div>
               ) : null}
+              {extraValue > 0 ? (
+                <div className="flex justify-between gap-2">
+                  <span>Agregado</span>
+                  <span className="shrink-0 whitespace-nowrap">{formatCurrency(extraValue)}</span>
+                </div>
+              ) : null}
               <div className="flex justify-between gap-2">
                 <span>Delivery</span>
                 <span className="shrink-0 whitespace-nowrap">{formatCurrency(deliveryFeeAmount)}</span>
               </div>
             </div>
-          ) : discountValue > 0 ? (
+          ) : discountValue > 0 || extraValue > 0 ? (
             <div className="space-y-1 text-xs font-bold">
               <div className="flex justify-between gap-2">
                 <span>Subtotal</span>
                 <span className="shrink-0 whitespace-nowrap">{formatCurrency(cartTotal)}</span>
               </div>
-              <div className="flex justify-between gap-2">
-                <span>Descuento</span>
-                <span className="shrink-0 whitespace-nowrap">-{formatCurrency(discountValue)}</span>
-              </div>
+              {discountValue > 0 ? (
+                <div className="flex justify-between gap-2">
+                  <span>Descuento</span>
+                  <span className="shrink-0 whitespace-nowrap">-{formatCurrency(discountValue)}</span>
+                </div>
+              ) : null}
+              {extraValue > 0 ? (
+                <div className="flex justify-between gap-2">
+                  <span>Agregado</span>
+                  <span className="shrink-0 whitespace-nowrap">{formatCurrency(extraValue)}</span>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -592,14 +689,20 @@ export function HomeSection({
     setIsPrinting(true);
     const productName = cartItems.length === 1 ? cartItems[0].name : undefined;
     const saved = await onRegisterSale({
+      id: editingCartSale?.id,
+      createdAt: editingCartSale?.createdAt,
+      date: editingCartSale?.date,
       client: orderName,
       detail: orderDetail,
       total: orderTotal,
+      status: editingCartSale?.status,
+      cashAmount: editingCartSale?.cashAmount,
+      transferAmount: editingCartSale?.transferAmount,
       deliveryType,
       deliveryAddress,
       deliveryFee: deliveryFeeAmount,
-      deliveryPaymentMethod: deliveryType === "delivery" ? deliveryPaymentMethod : undefined,
       discountAmount: discountValue,
+      extraAmount: extraValue,
       fulfillmentTime,
       orderItems: buildOrderItems(),
       quantity: cartUnits,
@@ -623,8 +726,8 @@ export function HomeSection({
           deliveryType,
           deliveryAddress,
           deliveryFee: deliveryFeeAmount,
-          deliveryPaymentMethod: deliveryType === "delivery" ? deliveryPaymentMethod : undefined,
           discountAmount: discountValue,
+          extraAmount: extraValue,
           fulfillmentTime,
           items: buildOrderItems(),
           productTotal: cartTotal,
@@ -639,13 +742,14 @@ export function HomeSection({
       setReceiptPaperSize("80mm");
       setIsAdvancedOpen(false);
       setDiscountAmount("");
+      setExtraAmount("");
       setDeliveryType("retiro");
       setDeliveryAddress("");
       setDeliveryFee("");
-      setDeliveryPaymentMethod("efectivo");
       setFulfillmentTime("");
       setOrderName("");
       setOrderDetail("");
+      setEditingCartSale(null);
     } catch (error) {
       setIsPrinting(false);
       window.alert(error instanceof Error ? error.message : "No fue posible imprimir el ticket ESC/POS.");
@@ -705,6 +809,12 @@ export function HomeSection({
 
         <aside className={`${shellCardClass} flex min-h-[26rem] flex-col overflow-hidden lg:h-full lg:min-h-0`}>
           <div className="space-y-3 border-b border-rose-100 py-4">
+            {editingCartSale ? (
+              <div className="rounded-[1.1rem] border border-fuchsia-100 bg-fuchsia-50 px-4 py-3">
+                <p className="text-xs font-black uppercase tracking-[0.16em] text-fuchsia-600">Editando venta</p>
+                <p className="mt-1 truncate text-sm font-bold text-rose-950">{editingCartSale.client || editingCartSale.id}</p>
+              </div>
+            ) : null}
             <div className="rounded-[1.35rem] bg-gradient-to-r from-rose-50 to-fuchsia-50 p-4">
               <div className="flex items-start justify-between gap-3">
                 <p className="text-sm font-medium text-rose-500">Total pedido</p>
@@ -720,14 +830,13 @@ export function HomeSection({
                 setPrintSections(defaultPrintSections);
                 setReceiptPaperSize("80mm");
                 setIsAdvancedOpen(false);
-                setDiscountAmount("");
                 setIsReceiptOpen(true);
               }}
               disabled={cartItems.length === 0}
               className="inline-flex w-full items-center justify-center gap-2 rounded-full bg-fuchsia-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-300/50 transition hover:bg-fuchsia-700 disabled:cursor-not-allowed disabled:opacity-45"
             >
               <PrintIcon />
-              Imprimir boleta
+              {editingCartSale ? "Actualizar e imprimir" : "Imprimir boleta"}
             </button>
           </div>
 
@@ -1013,6 +1122,7 @@ export function HomeSection({
                   setReceiptPaperSize("80mm");
                   setIsAdvancedOpen(false);
                   setDiscountAmount("");
+                  setExtraAmount("");
                   setIsReceiptOpen(false);
                 }}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
@@ -1103,24 +1213,6 @@ export function HomeSection({
                           />
                         </label>
                       </div>
-
-                      <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Pago delivery</p>
-                        <div className="mt-2 grid gap-2 rounded-[1rem] bg-rose-50 p-1 sm:grid-cols-4">
-                          {Object.entries(deliveryPaymentMethodLabels).map(([value, label]) => (
-                            <button
-                              key={value}
-                              type="button"
-                              onClick={() => setDeliveryPaymentMethod(value as DeliveryPaymentMethod)}
-                              className={`rounded-[0.8rem] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
-                                deliveryPaymentMethod === value ? "bg-fuchsia-600 text-white" : "text-rose-700"
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
                     </div>
                   ) : null}
 
@@ -1152,17 +1244,31 @@ export function HomeSection({
                               <span className="font-bold text-rose-600">-{formatCurrency(discountValue)}</span>
                             </div>
                           ) : null}
+                          {extraValue > 0 ? (
+                            <div className="mb-2 flex justify-between gap-3">
+                              <span>Agregado</span>
+                              <span className="font-bold text-emerald-700">{formatCurrency(extraValue)}</span>
+                            </div>
+                          ) : null}
                           <div className="flex justify-between gap-3">
                             <span>Delivery</span>
                             <span className="font-bold">{formatCurrency(deliveryFeeAmount)}</span>
                           </div>
                         </div>
-                      ) : discountValue > 0 ? (
+                      ) : discountValue > 0 || extraValue > 0 ? (
                         <div className="border-t border-rose-100 pt-2">
-                          <div className="flex justify-between gap-3">
-                            <span>Descuento</span>
-                            <span className="font-bold text-rose-600">-{formatCurrency(discountValue)}</span>
-                          </div>
+                          {discountValue > 0 ? (
+                            <div className="flex justify-between gap-3">
+                              <span>Descuento</span>
+                              <span className="font-bold text-rose-600">-{formatCurrency(discountValue)}</span>
+                            </div>
+                          ) : null}
+                          {extraValue > 0 ? (
+                            <div className="flex justify-between gap-3">
+                              <span>Agregado</span>
+                              <span className="font-bold text-emerald-700">{formatCurrency(extraValue)}</span>
+                            </div>
+                          ) : null}
                         </div>
                       ) : null}
                     </div>
@@ -1179,7 +1285,7 @@ export function HomeSection({
                     </button>
 
                     {isAdvancedOpen ? (
-                      <div className="mt-4 space-y-2">
+                      <div className="mt-4 grid gap-3 sm:grid-cols-2">
                         <label className="block space-y-2">
                           <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Descuento</span>
                           <input
@@ -1189,12 +1295,28 @@ export function HomeSection({
                             className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
                             placeholder="0"
                           />
+                          {discountValue > 0 ? (
+                            <span className="block text-xs font-semibold text-rose-600">
+                              Total productos con descuento: {formatCurrency(discountedCartTotal)}
+                            </span>
+                          ) : null}
                         </label>
-                        {discountValue > 0 ? (
-                          <p className="text-xs font-semibold text-rose-600">
-                            Total productos con descuento: {formatCurrency(discountedCartTotal)}
-                          </p>
-                        ) : null}
+
+                        <label className="block space-y-2">
+                          <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Agregar dinero</span>
+                          <input
+                            value={extraAmount}
+                            onChange={(event) => setExtraAmount(event.target.value.replace(/\D/g, ""))}
+                            inputMode="numeric"
+                            className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                            placeholder="0"
+                          />
+                          {extraValue > 0 ? (
+                            <span className="block text-xs font-semibold text-emerald-700">
+                              Extra sumado: {formatCurrency(extraValue)}
+                            </span>
+                          ) : null}
+                        </label>
                       </div>
                     ) : null}
                   </div>

@@ -8,7 +8,17 @@ import { deliveryPaymentMethodLabels, saleStatusLabels, shellCardClass } from ".
 import { familyComboDescriptions } from "../data/order-menu";
 import { formatShortDate } from "../lib/date";
 import { formatCurrency, formatNumber } from "../lib/format";
-import { getSaleDeliveryFee, getSaleDiscountAmount, getSaleNetTotal } from "../lib/sales";
+import {
+  getSaleBusinessIncomeTotal,
+  getSaleCashIncome,
+  getSaleDebitIncome,
+  getSaleDeliveryCashToDebitMovement,
+  getSaleDeliveryDebitToCashMovement,
+  getSaleDeliveryFee,
+  getSaleDiscountAmount,
+  getSaleExtraAmount,
+  getSaleNetTotal,
+} from "../lib/sales";
 import { printTicket } from "../lib/thermal-printer";
 import { buildDailyReportTicketData, buildTicketData, type ReceiptPaperSize } from "../lib/thermal-ticket";
 import type { DeliveryPaymentMethod, DeliveryType, Sale, SaleOrderItem, SaleStatus } from "../types";
@@ -35,7 +45,14 @@ const receiptPrintSectionOptions: { key: ReceiptPrintSection; label: string }[] 
 
 type SaleUpdateInput = Pick<
   Sale,
-  "client" | "detail" | "deliveryType" | "deliveryAddress" | "deliveryFee" | "deliveryPaymentMethod" | "fulfillmentTime"
+  | "client"
+  | "detail"
+  | "deliveryType"
+  | "deliveryAddress"
+  | "deliveryFee"
+  | "discountAmount"
+  | "extraAmount"
+  | "fulfillmentTime"
 >;
 
 type SaleEditForm = {
@@ -44,7 +61,8 @@ type SaleEditForm = {
   deliveryType: DeliveryType;
   deliveryAddress: string;
   deliveryFee: string;
-  deliveryPaymentMethod: DeliveryPaymentMethod;
+  discountAmount: string;
+  extraAmount: string;
   fulfillmentTime: string;
 };
 
@@ -110,6 +128,8 @@ const salesReportPeriodLabels: Record<SalesReportPeriod, string> = {
 
 const getSalesReportTitle = (period: SalesReportPeriod) => `Cierre ${salesReportPeriodLabels[period].toLowerCase()}`;
 
+const shouldIncludeSoldDetailByDefault = (period: SalesReportPeriod) => period !== "monthly";
+
 const formatReportDateTime = (date: Date) =>
   date.toLocaleString("es-CL", {
     day: "2-digit",
@@ -162,6 +182,57 @@ const getProductSalesStats = (sales: Sale[]) => {
   }
 
   return Array.from(products.values()).sort((first, second) => second.quantity - first.quantity || second.total - first.total);
+};
+
+const getDeliveryPaymentTotals = (sales: Sale[]) =>
+  Object.entries(deliveryPaymentMethodLabels)
+    .map(([method, label]) => ({
+      label,
+      value: sales.reduce(
+        (total, sale) =>
+          sale.deliveryType === "delivery" && sale.deliveryPaymentMethod === method ? total + getSaleDeliveryFee(sale) : total,
+        0,
+      ),
+    }))
+    .filter((line) => line.value > 0);
+
+const getDeliveryCashToDebitAdjustment = (sales: Sale[]) =>
+  sales.reduce((total, sale) => total + getSaleDeliveryCashToDebitMovement(sale), 0);
+
+const getDeliveryDebitToCashAdjustment = (sales: Sale[]) =>
+  sales.reduce((total, sale) => total + getSaleDeliveryDebitToCashMovement(sale), 0);
+
+const getWeekdayLabel = (date: Date) =>
+  new Intl.DateTimeFormat("es-CL", { weekday: "short", day: "2-digit", month: "2-digit" }).format(date);
+
+const getWeeklyDailyPaymentBreakdown = (sales: Sale[], rangeStart: Date) => {
+  const days = Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(rangeStart);
+    date.setDate(rangeStart.getDate() + index);
+    return {
+      key: getDateInputValue(date),
+      label: getWeekdayLabel(date),
+      cash: 0,
+      card: 0,
+      total: 0,
+    };
+  });
+  const dayMap = new Map(days.map((day) => [day.key, day]));
+
+  for (const sale of sales) {
+    const day = dayMap.get(getDateInputValue(new Date(sale.createdAt)));
+
+    if (!day) {
+      continue;
+    }
+
+    day.cash += getSaleCashIncome(sale) - getSaleDeliveryCashToDebitMovement(sale) + getSaleDeliveryDebitToCashMovement(sale);
+    day.card += getSaleDebitIncome(sale) + getSaleDeliveryCashToDebitMovement(sale) - getSaleDeliveryDebitToCashMovement(sale);
+
+    day.total = day.cash + day.card;
+  }
+
+  return days.filter((day) => day.total > 0);
 };
 
 const truncateText = (text: string, maxLength = 42) => {
@@ -244,6 +315,7 @@ export function SalesSection({
   onDelete,
   onUpdateStatus,
   onUpdateSale,
+  onEditCart,
   onExport,
   onImport,
   realMoneyTotals,
@@ -257,8 +329,13 @@ export function SalesSection({
     total: number;
   };
   onDelete: (id: string) => void;
-  onUpdateStatus: (id: string, status: SaleStatus, paymentAmounts?: { cashAmount?: number; transferAmount?: number }) => void;
+  onUpdateStatus: (
+    id: string,
+    status: SaleStatus,
+    paymentAmounts?: { cashAmount?: number; transferAmount?: number; deliveryPaymentMethod?: DeliveryPaymentMethod },
+  ) => void;
   onUpdateSale: (id: string, updates: SaleUpdateInput) => void;
+  onEditCart: (sale: Sale) => void;
   onExport: () => void;
   onImport: (csvContent: string) => void;
 }) {
@@ -272,6 +349,7 @@ export function SalesSection({
   const [salesReportPeriod, setSalesReportPeriod] = useState<SalesReportPeriod>("daily");
   const [dailyReportPaperSize, setDailyReportPaperSize] = useState<ReceiptPaperSize>("56mm");
   const [includeRealMoneyStats, setIncludeRealMoneyStats] = useState(false);
+  const [includeSoldDetailInReport, setIncludeSoldDetailInReport] = useState(true);
   const [isDailyReportOpen, setIsDailyReportOpen] = useState(false);
   const [editingSale, setEditingSale] = useState<Sale | null>(null);
   const [paymentSale, setPaymentSale] = useState<Sale | null>(null);
@@ -279,13 +357,15 @@ export function SalesSection({
   const [copiedSaleId, setCopiedSaleId] = useState<string | null>(null);
   const [mixedCashAmount, setMixedCashAmount] = useState("");
   const [mixedTransferAmount, setMixedTransferAmount] = useState("");
+  const [paymentDeliveryPaymentMethod, setPaymentDeliveryPaymentMethod] = useState<DeliveryPaymentMethod>("efectivo");
   const [saleEditForm, setSaleEditForm] = useState<SaleEditForm>({
     client: "",
     detail: "",
     deliveryType: "retiro",
     deliveryAddress: "",
     deliveryFee: "",
-    deliveryPaymentMethod: "efectivo",
+    discountAmount: "",
+    extraAmount: "",
     fulfillmentTime: "",
   });
 
@@ -322,15 +402,14 @@ export function SalesSection({
   };
 
   const copySaleLocation = async (sale: Sale) => {
-    const location = sale.deliveryType === "delivery" ? sale.deliveryAddress || "Delivery sin direccion" : "Retiro en local";
-    const text = [`Nombre: ${sale.client || "Sin cliente"}`, `Lugar: ${location}`].join("\n");
+    const text = sale.deliveryType === "delivery" ? sale.deliveryAddress?.trim() || "Delivery sin direccion" : "Retiro en local";
 
     try {
       await navigator.clipboard.writeText(text);
       setCopiedSaleId(sale.id);
       window.setTimeout(() => setCopiedSaleId((current) => (current === sale.id ? null : current)), 1600);
     } catch {
-      window.alert("No fue posible copiar los datos del pedido.");
+      window.alert("No fue posible copiar la direccion.");
     }
   };
 
@@ -342,7 +421,8 @@ export function SalesSection({
       deliveryType: sale.deliveryType ?? "retiro",
       deliveryAddress: sale.deliveryAddress ?? "",
       deliveryFee: sale.deliveryFee ? String(sale.deliveryFee) : "",
-      deliveryPaymentMethod: sale.deliveryPaymentMethod ?? "efectivo",
+      discountAmount: sale.discountAmount ? String(sale.discountAmount) : "",
+      extraAmount: sale.extraAmount ? String(sale.extraAmount) : "",
       fulfillmentTime: sale.fulfillmentTime ?? "",
     });
   };
@@ -355,7 +435,8 @@ export function SalesSection({
       deliveryType: "retiro",
       deliveryAddress: "",
       deliveryFee: "",
-      deliveryPaymentMethod: "efectivo",
+      discountAmount: "",
+      extraAmount: "",
       fulfillmentTime: "",
     });
   };
@@ -364,6 +445,7 @@ export function SalesSection({
     setPaymentSale(null);
     setMixedCashAmount("");
     setMixedTransferAmount("");
+    setPaymentDeliveryPaymentMethod("efectivo");
   };
 
   const openPaymentModal = (sale: Sale) => {
@@ -371,6 +453,7 @@ export function SalesSection({
     setPaymentSale(sale);
     setMixedCashAmount(sale.cashAmount ? String(sale.cashAmount) : "");
     setMixedTransferAmount(sale.transferAmount ? String(sale.transferAmount) : "");
+    setPaymentDeliveryPaymentMethod(sale.deliveryPaymentMethod ?? "efectivo");
   };
 
   const getClampedPaymentAmount = (rawValue: string, saleTotal: number) => {
@@ -405,7 +488,9 @@ export function SalesSection({
       return;
     }
 
-    onUpdateStatus(paymentSale.id, status);
+    onUpdateStatus(paymentSale.id, status, {
+      deliveryPaymentMethod: paymentSale.deliveryType === "delivery" ? paymentDeliveryPaymentMethod : undefined,
+    });
     closePaymentModal();
   };
 
@@ -436,7 +521,11 @@ export function SalesSection({
       return;
     }
 
-    onUpdateStatus(paymentSale.id, "mixto", { cashAmount, transferAmount });
+    onUpdateStatus(paymentSale.id, "mixto", {
+      cashAmount,
+      transferAmount,
+      deliveryPaymentMethod: paymentSale.deliveryType === "delivery" ? paymentDeliveryPaymentMethod : undefined,
+    });
     closePaymentModal();
   };
 
@@ -446,6 +535,8 @@ export function SalesSection({
     }
 
     const deliveryFee = saleEditForm.deliveryType === "delivery" ? Number.parseInt(saleEditForm.deliveryFee, 10) || 0 : undefined;
+    const discountAmount = Number.parseInt(saleEditForm.discountAmount, 10) || 0;
+    const extraAmount = Number.parseInt(saleEditForm.extraAmount, 10) || 0;
 
     onUpdateSale(editingSale.id, {
       client: saleEditForm.client,
@@ -453,7 +544,8 @@ export function SalesSection({
       deliveryType: saleEditForm.deliveryType,
       deliveryAddress: saleEditForm.deliveryType === "delivery" ? saleEditForm.deliveryAddress : "",
       deliveryFee,
-      deliveryPaymentMethod: saleEditForm.deliveryType === "delivery" ? saleEditForm.deliveryPaymentMethod : undefined,
+      discountAmount,
+      extraAmount,
       fulfillmentTime: saleEditForm.fulfillmentTime,
     });
     closeEditSale();
@@ -490,6 +582,7 @@ export function SalesSection({
           deliveryFee: getSaleDeliveryFee(receiptSale),
           deliveryPaymentMethod: receiptSale.deliveryPaymentMethod,
           discountAmount: getSaleDiscountAmount(receiptSale),
+          extraAmount: getSaleExtraAmount(receiptSale),
           fulfillmentTime: receiptSale.fulfillmentTime,
           items: receiptItems,
           productTotal: receiptProductTotal,
@@ -507,7 +600,7 @@ export function SalesSection({
   const kitchenGroups = getKitchenGroups(receiptItems);
   const kitchenSummary = getKitchenSummary(receiptItems);
   const dailyReportRange = getSalesReportRange(salesReportPeriod, dailyReportDate);
-  const shouldIncludeRealMoneyStats = salesReportPeriod === "weekly" && includeRealMoneyStats;
+  const shouldIncludeRealMoneyStats = salesReportPeriod !== "monthly" && includeRealMoneyStats;
   const dailyReportSales = useMemo(
     () =>
       sales
@@ -516,21 +609,30 @@ export function SalesSection({
     [dailyReportDate, sales, salesReportPeriod],
   );
   const dailyReportProductStats = useMemo(() => getProductSalesStats(dailyReportSales), [dailyReportSales]);
+  const dailyReportDeliveryPaymentTotals = useMemo(() => getDeliveryPaymentTotals(dailyReportSales), [dailyReportSales]);
+  const deliveryCashToDebitAdjustment = useMemo(() => getDeliveryCashToDebitAdjustment(dailyReportSales), [dailyReportSales]);
+  const deliveryDebitToCashAdjustment = useMemo(() => getDeliveryDebitToCashAdjustment(dailyReportSales), [dailyReportSales]);
+  const adjustedRealMoneyTotals = useMemo(
+    () => ({
+      cash: realMoneyTotals.cash,
+      debit: realMoneyTotals.debit,
+      total: realMoneyTotals.total,
+      adjustment: deliveryCashToDebitAdjustment,
+      reverseAdjustment: deliveryDebitToCashAdjustment,
+    }),
+    [deliveryCashToDebitAdjustment, deliveryDebitToCashAdjustment, realMoneyTotals.cash, realMoneyTotals.debit, realMoneyTotals.total],
+  );
+  const weeklyDailyPaymentBreakdown = useMemo(
+    () => (salesReportPeriod === "weekly" ? getWeeklyDailyPaymentBreakdown(dailyReportSales, dailyReportRange.start) : []),
+    [dailyReportRange.start, dailyReportSales, salesReportPeriod],
+  );
   const dailyReportTotals = useMemo(
     () => ({
-      efectivo: dailyReportSales.reduce((total, sale) => {
-        if (sale.status === "efectivo") return total + getSaleNetTotal(sale);
-        if (sale.status === "mixto") return total + (sale.cashAmount ?? 0);
-        return total;
-      }, 0),
-      debito: dailyReportSales.reduce((total, sale) => {
-        if (sale.status === "transferencia") return total + getSaleNetTotal(sale);
-        if (sale.status === "mixto") return total + (sale.transferAmount ?? 0);
-        return total;
-      }, 0),
-      pendiente: dailyReportSales.filter((sale) => sale.status === "pendiente").reduce((total, sale) => total + getSaleNetTotal(sale), 0),
+      efectivo: dailyReportSales.reduce((total, sale) => total + getSaleCashIncome(sale), 0),
+      debito: dailyReportSales.reduce((total, sale) => total + getSaleDebitIncome(sale), 0),
+      pendiente: dailyReportSales.filter((sale) => sale.status === "pendiente").reduce((total, sale) => total + getSaleBusinessIncomeTotal(sale), 0),
       delivery: dailyReportSales.reduce((total, sale) => total + getSaleDeliveryFee(sale), 0),
-      total: dailyReportSales.reduce((total, sale) => total + getSaleNetTotal(sale), 0),
+      total: dailyReportSales.reduce((total, sale) => total + getSaleBusinessIncomeTotal(sale), 0),
     }),
     [dailyReportSales],
   );
@@ -548,27 +650,35 @@ export function SalesSection({
           cardTotal: dailyReportTotals.debito,
           pendingTotal: dailyReportTotals.pendiente,
           deliveryTotal: dailyReportTotals.delivery,
+          deliveryPayments: dailyReportDeliveryPaymentTotals.map((line) => ({
+            label: `Delivery ${line.label}`,
+            value: line.value,
+          })),
           totalCollected: dailyReportTotals.efectivo + dailyReportTotals.debito,
           totalSales: dailyReportTotals.total,
           cashSnapshot: shouldIncludeRealMoneyStats
             ? {
-                cash: realMoneyTotals.cash,
-                debit: realMoneyTotals.debit,
-                total: realMoneyTotals.total,
+                cash: adjustedRealMoneyTotals.cash,
+                debit: adjustedRealMoneyTotals.debit,
+                total: adjustedRealMoneyTotals.total,
+                adjustment: adjustedRealMoneyTotals.adjustment,
+                reverseAdjustment: adjustedRealMoneyTotals.reverseAdjustment,
               }
             : undefined,
+          dailyBreakdown: salesReportPeriod === "weekly" ? weeklyDailyPaymentBreakdown : undefined,
           sales:
-            salesReportPeriod === "daily"
+            salesReportPeriod === "daily" && includeSoldDetailInReport
               ? dailyReportSales.map((sale) => ({
                   time: new Date(sale.createdAt).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" }),
                   client: sale.client,
                   total: getSaleNetTotal(sale),
                   status: saleStatusLabels[sale.status],
                   deliveryFee: getSaleDeliveryFee(sale),
+                  deliveryPaymentMethod: sale.deliveryPaymentMethod,
                 }))
               : undefined,
           productStats:
-            salesReportPeriod === "daily"
+            salesReportPeriod === "daily" || !includeSoldDetailInReport
               ? undefined
               : dailyReportProductStats.map((product) => ({
                   name: product.name,
@@ -618,6 +728,12 @@ export function SalesSection({
                 <span>Delivery cobrado</span>
                 <span className="shrink-0">{formatCurrency(dailyReportTotals.delivery)}</span>
               </div>
+              {dailyReportDeliveryPaymentTotals.map((line) => (
+                <div key={line.label} className="flex justify-between gap-2">
+                  <span>Delivery {line.label}</span>
+                  <span className="shrink-0">{formatCurrency(line.value)}</span>
+                </div>
+              ))}
             </div>
 
             <div className="my-3 border-t border-dashed border-black" />
@@ -638,21 +754,33 @@ export function SalesSection({
                 <div className="receipt-cut space-y-1 text-xs font-bold">
                   <div className="flex justify-between gap-2">
                     <span>Efectivo real</span>
-                    <span className="shrink-0">{formatCurrency(realMoneyTotals.cash)}</span>
+                    <span className="shrink-0">{formatCurrency(adjustedRealMoneyTotals.cash)}</span>
                   </div>
                   <div className="flex justify-between gap-2">
                     <span>Debito real</span>
-                    <span className="shrink-0">{formatCurrency(realMoneyTotals.debit)}</span>
+                    <span className="shrink-0">{formatCurrency(adjustedRealMoneyTotals.debit)}</span>
                   </div>
                   <div className="flex justify-between gap-2 text-sm font-black">
                     <span>Total real</span>
-                    <span className="shrink-0">{formatCurrency(realMoneyTotals.total)}</span>
+                    <span className="shrink-0">{formatCurrency(adjustedRealMoneyTotals.total)}</span>
                   </div>
+                  {adjustedRealMoneyTotals.adjustment > 0 ? (
+                    <div className="flex justify-between gap-2">
+                      <span>Efectivo a debito</span>
+                      <span className="shrink-0">{formatCurrency(adjustedRealMoneyTotals.adjustment)}</span>
+                    </div>
+                  ) : null}
+                  {adjustedRealMoneyTotals.reverseAdjustment > 0 ? (
+                    <div className="flex justify-between gap-2">
+                      <span>Debito a efectivo</span>
+                      <span className="shrink-0">{formatCurrency(adjustedRealMoneyTotals.reverseAdjustment)}</span>
+                    </div>
+                  ) : null}
                 </div>
               </>
             ) : null}
 
-            {salesReportPeriod === "daily" && dailyReportSales.length > 0 ? (
+            {salesReportPeriod === "daily" && includeSoldDetailInReport && dailyReportSales.length > 0 ? (
               <>
                 <div className="my-3 border-t border-dashed border-black" />
                 <div className="space-y-2">
@@ -667,7 +795,11 @@ export function SalesSection({
                       </div>
                       <p className="mt-0.5 text-[11px] font-bold uppercase">
                         {saleStatusLabels[sale.status]}
-                        {getSaleDeliveryFee(sale) > 0 ? ` · Delivery ${formatCurrency(getSaleDeliveryFee(sale))}` : ""}
+                        {getSaleDeliveryFee(sale) > 0
+                          ? ` · Delivery ${formatCurrency(getSaleDeliveryFee(sale))}${
+                              sale.deliveryPaymentMethod ? ` (${deliveryPaymentMethodLabels[sale.deliveryPaymentMethod]})` : ""
+                            }`
+                          : ""}
                       </p>
                     </div>
                   ))}
@@ -675,7 +807,7 @@ export function SalesSection({
               </>
             ) : null}
 
-            {salesReportPeriod !== "daily" && dailyReportProductStats.length > 0 ? (
+            {salesReportPeriod !== "daily" && includeSoldDetailInReport && dailyReportProductStats.length > 0 ? (
               <>
                 <div className="my-3 border-t border-dashed border-black" />
                 <p className="mb-2 text-xs font-black uppercase">Productos vendidos</p>
@@ -683,9 +815,7 @@ export function SalesSection({
                   {dailyReportProductStats.map((product) => (
                     <div key={product.name} className="receipt-cut text-xs font-semibold">
                       <div className="flex justify-between gap-2">
-                        <span>
-                          {formatNumber(product.quantity)} x {product.name}
-                        </span>
+                        <span>{product.quantity > 1 ? `${formatNumber(product.quantity)} x ${product.name}` : product.name}</span>
                         <span className="shrink-0">{formatCurrency(product.total)}</span>
                       </div>
                     </div>
@@ -830,7 +960,7 @@ export function SalesSection({
 
             <div className="my-3 border-t border-dashed border-black" />
 
-            {receiptSale.deliveryType === "delivery" || getSaleDiscountAmount(receiptSale) > 0 ? (
+            {receiptSale.deliveryType === "delivery" || getSaleDiscountAmount(receiptSale) > 0 || getSaleExtraAmount(receiptSale) > 0 ? (
               <div className="space-y-1 text-xs font-bold">
                 <div className="flex justify-between gap-2">
                   <span>Subtotal</span>
@@ -840,6 +970,12 @@ export function SalesSection({
                   <div className="flex justify-between gap-2">
                     <span>Descuento</span>
                     <span className="shrink-0 whitespace-nowrap">-{formatCurrency(getSaleDiscountAmount(receiptSale))}</span>
+                  </div>
+                ) : null}
+                {getSaleExtraAmount(receiptSale) > 0 ? (
+                  <div className="flex justify-between gap-2">
+                    <span>Agregado</span>
+                    <span className="shrink-0 whitespace-nowrap">{formatCurrency(getSaleExtraAmount(receiptSale))}</span>
                   </div>
                 ) : null}
                 {receiptSale.deliveryType === "delivery" ? (
@@ -963,7 +1099,7 @@ export function SalesSection({
 
       {isDailyReportOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/55 px-4 py-8 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-[2rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.28)]">
+          <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-[2rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.28)]">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-medium text-rose-500">Ventas</p>
@@ -976,6 +1112,7 @@ export function SalesSection({
                   setDailyReportPaperSize("56mm");
                   setSalesReportPeriod("daily");
                   setIncludeRealMoneyStats(false);
+                  setIncludeSoldDetailInReport(true);
                 }}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
                 aria-label="Cerrar cierre diario"
@@ -984,30 +1121,32 @@ export function SalesSection({
               </button>
             </div>
 
-            <div className="mt-5">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Tipo de cierre</p>
-              <div className="mt-2 grid grid-cols-3 gap-2 rounded-full bg-rose-50 p-1">
-                {(["daily", "weekly", "monthly"] as SalesReportPeriod[]).map((period) => (
-                  <button
-                    key={period}
-                    type="button"
-                    onClick={() => {
-                      setSalesReportPeriod(period);
-                      if (period !== "weekly") {
-                        setIncludeRealMoneyStats(false);
-                      }
-                    }}
-                    className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
-                      salesReportPeriod === period ? "bg-fuchsia-600 text-white" : "text-rose-700"
-                    }`}
-                  >
-                    {salesReportPeriodLabels[period]}
-                  </button>
-                ))}
+            <div className="mt-5 min-h-0 flex-1 overflow-auto pr-1">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Tipo de cierre</p>
+                <div className="mt-2 grid grid-cols-3 gap-2 rounded-full bg-rose-50 p-1">
+                  {(["daily", "weekly", "monthly"] as SalesReportPeriod[]).map((period) => (
+                    <button
+                      key={period}
+                      type="button"
+                      onClick={() => {
+                        setSalesReportPeriod(period);
+                        setIncludeSoldDetailInReport(shouldIncludeSoldDetailByDefault(period));
+                        if (period === "monthly") {
+                          setIncludeRealMoneyStats(false);
+                        }
+                      }}
+                      className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+                        salesReportPeriod === period ? "bg-fuchsia-600 text-white" : "text-rose-700"
+                      }`}
+                    >
+                      {salesReportPeriodLabels[period]}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
 
-            <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_190px]">
+              <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_190px]">
               <label className="block space-y-2">
                 <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">
                   {salesReportPeriod === "daily" ? "Dia de venta" : "Fecha dentro del periodo"}
@@ -1043,22 +1182,37 @@ export function SalesSection({
               </div>
             </div>
 
-            {salesReportPeriod === "weekly" ? (
-              <label className="mt-4 flex items-start gap-3 rounded-[1.25rem] border border-rose-100 bg-white/80 p-4 text-sm text-rose-800">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {salesReportPeriod !== "monthly" ? (
+                <label className="flex items-start gap-3 rounded-[1.25rem] border border-rose-100 bg-white/80 p-4 text-sm text-rose-800">
+                  <input
+                    type="checkbox"
+                    checked={includeRealMoneyStats}
+                    onChange={(event) => setIncludeRealMoneyStats(event.target.checked)}
+                    className="mt-1 h-4 w-4 accent-fuchsia-600"
+                  />
+                  <span>
+                    <span className="block font-black text-rose-950">Agregar dinero real</span>
+                    <span className="mt-1 block text-xs font-semibold text-rose-600">Incluye caja real y ajuste efectivo a debito.</span>
+                  </span>
+                </label>
+              ) : null}
+
+              <label className="flex items-start gap-3 rounded-[1.25rem] border border-rose-100 bg-white/80 p-4 text-sm text-rose-800">
                 <input
                   type="checkbox"
-                  checked={includeRealMoneyStats}
-                  onChange={(event) => setIncludeRealMoneyStats(event.target.checked)}
+                  checked={includeSoldDetailInReport}
+                  onChange={(event) => setIncludeSoldDetailInReport(event.target.checked)}
                   className="mt-1 h-4 w-4 accent-fuchsia-600"
                 />
                 <span>
-                  <span className="block font-black text-rose-950">Agregar dinero real</span>
+                  <span className="block font-black text-rose-950">Imprimir detalle vendido</span>
                   <span className="mt-1 block text-xs font-semibold text-rose-600">
-                    Incluye efectivo real, debito real y total real en el cierre impreso.
+                    {salesReportPeriod === "daily" ? "Lista ventas del turno." : "Lista cantidades vendidas por producto."}
                   </span>
                 </span>
               </label>
-            ) : null}
+            </div>
 
             <div className="mt-4 rounded-[1.25rem] bg-rose-50/60 p-4">
               <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">
@@ -1084,6 +1238,12 @@ export function SalesSection({
                   <span>Delivery</span>
                   <span className="font-black">{formatCurrency(dailyReportTotals.delivery)}</span>
                 </div>
+                {dailyReportDeliveryPaymentTotals.map((line) => (
+                  <div key={line.label} className="flex justify-between gap-3 rounded-[1rem] bg-white/70 px-3 py-2">
+                    <span>Delivery {line.label}</span>
+                    <span className="font-black">{formatCurrency(line.value)}</span>
+                  </div>
+                ))}
                 <div className="flex justify-between gap-3 rounded-[1rem] bg-white/70 px-3 py-2">
                   <span>Total cobrado</span>
                   <span className="font-black">{formatCurrency(dailyReportTotals.efectivo + dailyReportTotals.debito)}</span>
@@ -1093,22 +1253,51 @@ export function SalesSection({
                 <div className="mt-3 grid gap-2 rounded-[1rem] border border-fuchsia-100 bg-white/80 p-3 text-sm text-rose-800 sm:grid-cols-3">
                   <div>
                     <span className="block text-xs font-semibold uppercase tracking-[0.12em] text-rose-500">Efectivo real</span>
-                    <span className="mt-1 block font-black">{formatCurrency(realMoneyTotals.cash)}</span>
+                    <span className="mt-1 block font-black">{formatCurrency(adjustedRealMoneyTotals.cash)}</span>
                   </div>
                   <div>
                     <span className="block text-xs font-semibold uppercase tracking-[0.12em] text-rose-500">Debito real</span>
-                    <span className="mt-1 block font-black">{formatCurrency(realMoneyTotals.debit)}</span>
+                    <span className="mt-1 block font-black">{formatCurrency(adjustedRealMoneyTotals.debit)}</span>
                   </div>
                   <div>
                     <span className="block text-xs font-semibold uppercase tracking-[0.12em] text-rose-500">Total real</span>
-                    <span className="mt-1 block font-black text-fuchsia-700">{formatCurrency(realMoneyTotals.total)}</span>
+                    <span className="mt-1 block font-black text-fuchsia-700">{formatCurrency(adjustedRealMoneyTotals.total)}</span>
                   </div>
+                  {adjustedRealMoneyTotals.adjustment > 0 ? (
+                    <p className="text-xs font-semibold text-fuchsia-700 sm:col-span-3">
+                      Efectivo a debito por delivery pagado con efectivo caja: {formatCurrency(adjustedRealMoneyTotals.adjustment)}
+                    </p>
+                  ) : null}
+                  {adjustedRealMoneyTotals.reverseAdjustment > 0 ? (
+                    <p className="text-xs font-semibold text-fuchsia-700 sm:col-span-3">
+                      Debito a efectivo por delivery pagado con debito caja: {formatCurrency(adjustedRealMoneyTotals.reverseAdjustment)}
+                    </p>
+                  ) : null}
                 </div>
               ) : null}
               <p className="mt-3 text-xs font-semibold text-rose-600">
                 {formatNumber(dailyReportSales.length)} ventas en el rango seleccionado.
               </p>
             </div>
+
+            {salesReportPeriod === "weekly" && weeklyDailyPaymentBreakdown.length > 0 ? (
+              <div className="mt-4 rounded-[1.25rem] border border-rose-100 bg-white/80 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Por dia</p>
+                <div className="mt-3 space-y-2 text-sm text-rose-800">
+                  {weeklyDailyPaymentBreakdown.map((day) => (
+                    <div key={day.label} className="rounded-[1rem] bg-rose-50/70 px-3 py-2">
+                      <div className="flex justify-between gap-3 font-black text-rose-950">
+                        <span>{day.label}</span>
+                        <span>{formatCurrency(day.total)}</span>
+                      </div>
+                      <p className="mt-1 text-xs font-semibold text-rose-600">
+                        Efectivo {formatCurrency(day.cash)} · Debito {formatCurrency(day.card)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             {salesReportPeriod !== "daily" ? (
               <div className="mt-4 rounded-[1.25rem] border border-rose-100 bg-white/80 p-4">
@@ -1128,7 +1317,9 @@ export function SalesSection({
               </div>
             ) : null}
 
-            <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+            </div>
+
+            <div className="mt-5 flex shrink-0 flex-col-reverse gap-3 border-t border-rose-100 pt-4 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={() => {
@@ -1136,6 +1327,7 @@ export function SalesSection({
                   setDailyReportPaperSize("56mm");
                   setSalesReportPeriod("daily");
                   setIncludeRealMoneyStats(false);
+                  setIncludeSoldDetailInReport(true);
                 }}
                 className="rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
               >
@@ -1179,6 +1371,26 @@ export function SalesSection({
               </div>
               <p className="mt-1 text-xs font-semibold text-rose-500">{paymentSale.client || "Sin cliente"}</p>
             </div>
+
+            {paymentSale.deliveryType === "delivery" ? (
+              <div className="mt-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Pago delivery</p>
+                <div className="mt-2 grid gap-2 rounded-[1rem] bg-rose-50 p-1 sm:grid-cols-4">
+                  {Object.entries(deliveryPaymentMethodLabels).map(([value, label]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setPaymentDeliveryPaymentMethod(value as DeliveryPaymentMethod)}
+                      className={`rounded-[0.8rem] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
+                        paymentDeliveryPaymentMethod === value ? "bg-fuchsia-600 text-white" : "text-rose-700"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
 
             <div className="mt-4 grid gap-2">
               <button
@@ -1333,25 +1545,6 @@ export function SalesSection({
                     </label>
                   </div>
 
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Pago delivery</p>
-                    <div className="mt-2 grid gap-2 rounded-[1rem] bg-rose-50 p-1 sm:grid-cols-4">
-                      {Object.entries(deliveryPaymentMethodLabels).map(([value, label]) => (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() =>
-                            setSaleEditForm((current) => ({ ...current, deliveryPaymentMethod: value as DeliveryPaymentMethod }))
-                          }
-                          className={`rounded-[0.8rem] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
-                            saleEditForm.deliveryPaymentMethod === value ? "bg-fuchsia-600 text-white" : "text-rose-700"
-                          }`}
-                        >
-                          {label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
                 </div>
               ) : null}
 
@@ -1365,6 +1558,32 @@ export function SalesSection({
                   placeholder="Descuento, regalo, canje, consumo trabajador..."
                 />
               </label>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Descuento</span>
+                  <input
+                    value={saleEditForm.discountAmount}
+                    onChange={(event) =>
+                      setSaleEditForm((current) => ({ ...current, discountAmount: event.target.value.replace(/\D/g, "") }))
+                    }
+                    inputMode="numeric"
+                    className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                    placeholder="0"
+                  />
+                </label>
+
+                <label className="block space-y-2">
+                  <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Agregado</span>
+                  <input
+                    value={saleEditForm.extraAmount}
+                    onChange={(event) => setSaleEditForm((current) => ({ ...current, extraAmount: event.target.value.replace(/\D/g, "") }))}
+                    inputMode="numeric"
+                    className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                    placeholder="0"
+                  />
+                </label>
+              </div>
             </div>
 
             <div className="mt-5 flex flex-col-reverse gap-3 border-t border-rose-100 pt-4 sm:flex-row sm:justify-end">
@@ -1395,6 +1614,7 @@ export function SalesSection({
             setSalesReportPeriod("daily");
             setDailyReportPaperSize("56mm");
             setIncludeRealMoneyStats(false);
+            setIncludeSoldDetailInReport(true);
             setIsDailyReportOpen(true);
           }}
           className="inline-flex items-center gap-2 rounded-full border border-fuchsia-200 bg-fuchsia-50 px-5 py-3 text-sm font-semibold text-fuchsia-700 transition hover:border-fuchsia-300 hover:bg-white"
@@ -1540,8 +1760,8 @@ export function SalesSection({
                                     ? "border-emerald-200 bg-emerald-50 text-emerald-700"
                                     : "border-rose-200 bg-white text-rose-600 hover:border-fuchsia-700 hover:bg-fuchsia-700 hover:text-white hover:shadow-md"
                                 }`}
-                                aria-label="Copiar nombre y lugar"
-                                title="Copiar nombre y lugar"
+                                aria-label="Copiar direccion"
+                                title="Copiar direccion"
                               >
                                 <CopyIcon />
                               </button>
@@ -1574,6 +1794,16 @@ export function SalesSection({
                                       className="block w-full rounded-[0.8rem] px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] text-fuchsia-700 transition hover:bg-fuchsia-50"
                                     >
                                       Editar venta
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setActionsSaleId(null);
+                                        onEditCart(sale);
+                                      }}
+                                      className="block w-full rounded-[0.8rem] px-3 py-2 text-left text-xs font-semibold uppercase tracking-[0.14em] text-fuchsia-700 transition hover:bg-fuchsia-50"
+                                    >
+                                      Modificar carrito
                                     </button>
                                     <button
                                       type="button"

@@ -614,7 +614,7 @@ const writeWrapped = (printer, value, columns, indent = "") => {
 
 const printItems = (printer, items, columns, showPrices) => {
   for (const item of items || []) {
-    const left = `${item.qty || 1} x ${item.name || "Item"}`;
+    const left = item.hideQuantity ? item.name || "Item" : `${item.qty || 1} x ${item.name || "Item"}`;
     const right = showPrices && typeof item.price === "number" ? formatCurrency(item.price) : "";
 
     setBold(printer, true);
@@ -757,9 +757,26 @@ const printDailyReport = async (printer, section, columns, paperSize, logoPath) 
     writeCentered(printer, "Dinero real", columns, true);
     writeLine(printer, twoColumnLine("Efectivo real", formatCurrency(section.cashSnapshot.cash), columns));
     writeLine(printer, twoColumnLine("Debito real", formatCurrency(section.cashSnapshot.debit), columns));
+    if (section.cashSnapshot.adjustment > 0) {
+      writeWrapped(printer, `Efectivo a debito: ${formatCurrency(section.cashSnapshot.adjustment)}`, columns);
+    }
+    if (section.cashSnapshot.reverseAdjustment > 0) {
+      writeWrapped(printer, `Debito a efectivo: ${formatCurrency(section.cashSnapshot.reverseAdjustment)}`, columns);
+    }
     setBold(printer, true);
     writeLine(printer, twoColumnLine("Total real", formatCurrency(section.cashSnapshot.total), columns));
     setBold(printer, false);
+  }
+
+  if (section.dailyBreakdown?.length) {
+    writeSeparator(printer, columns);
+    writeCentered(printer, "Por dia", columns, true);
+    for (const day of section.dailyBreakdown) {
+      setBold(printer, true);
+      writeLine(printer, twoColumnLine(day.label, formatCurrency(day.total), columns));
+      setBold(printer, false);
+      writeWrapped(printer, `Efectivo ${formatCurrency(day.cash)} / Debito ${formatCurrency(day.card)}`, columns, "  ");
+    }
   }
 
   if (section.sales?.length) {

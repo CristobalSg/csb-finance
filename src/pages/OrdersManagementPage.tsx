@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { PaginationControls } from "../components/common/PaginationControls";
-import { PrintIcon, XIcon } from "../components/icons";
-import { deliveryPaymentMethodLabels, shellCardClass } from "../constants/app";
+import { CheckIcon, XIcon } from "../components/icons";
+import { shellCardClass } from "../constants/app";
 import { formatCurrency, formatNumber } from "../lib/format";
 import { fetchOrders, updateOrderStatus } from "../lib/orders";
-import { printTicket } from "../lib/thermal-printer";
-import { buildTicketData, type ReceiptPaperSize, type TicketSectionSelection } from "../lib/thermal-ticket";
 import type {
-  DeliveryPaymentMethod,
   DeliveryType,
   SaleFromOrderInput,
   SaleOrderFamilyBurger,
@@ -20,12 +17,6 @@ import type {
 
 const statusOptions: SupabaseOrderStatus[] = ["pending", "confirmed", "preparing", "ready", "delivered", "cancelled"];
 const pageSize = 5;
-const defaultPrintSections: TicketSectionSelection = { kitchen: true, receipt: false, thanks: false };
-const printSectionOptions = [
-  { key: "kitchen", label: "Comanda" },
-  { key: "receipt", label: "Boleta" },
-  { key: "thanks", label: "Gracias" },
-] as const;
 
 const statusLabels: Record<SupabaseOrderStatus, string> = {
   pending: "Pendiente",
@@ -139,9 +130,6 @@ const mapOrderItemsToSaleItems = (items: SupabaseOrderItem[]): SaleOrderItem[] =
     };
   });
 
-const getDeliveryPaymentMethod = (order: SupabaseOrder): DeliveryPaymentMethod | undefined =>
-  order.order_type === "delivery" && order.payment_method === "cash" ? "efectivo" : undefined;
-
 const getExplicitOrderDetail = (order: SupabaseOrder) => {
   const fields = [
     order.metadata?.detail,
@@ -178,7 +166,7 @@ const getInitialOrderDeliveryFee = (order: SupabaseOrder) => (order.delivery_fee
 
 const buildSaleFromOrder = (
   order: SupabaseOrder,
-  options: { deliveryFee?: number; deliveryPaymentMethod?: DeliveryPaymentMethod; total?: number } = {},
+  options: { deliveryFee?: number; total?: number } = {},
 ): SaleFromOrderInput => {
   const items = mapOrderItemsToSaleItems(order.items);
   const deliveryType: DeliveryType = order.order_type === "delivery" ? "delivery" : "retiro";
@@ -196,7 +184,6 @@ const buildSaleFromOrder = (
     deliveryType,
     deliveryAddress: order.address ?? "",
     deliveryFee,
-    deliveryPaymentMethod: deliveryType === "delivery" ? options.deliveryPaymentMethod ?? getDeliveryPaymentMethod(order) : undefined,
     orderItems: items,
     quantity: Math.max(1, order.total_items || items.reduce((total, item) => total + item.quantity, 0)),
     productName,
@@ -260,146 +247,119 @@ function ItemDetail({ item, index }: { item: SupabaseOrderItem; index: number })
   );
 }
 
-function PrintOrderModal({
+function ConfirmOrderModal({
   order,
-  paperSize,
-  sections,
   deliveryFee,
-  deliveryPaymentMethod,
-  isPrinting,
+  isConfirming,
   onClose,
-  onPaperSizeChange,
-  onSectionsChange,
   onDeliveryFeeChange,
-  onDeliveryPaymentMethodChange,
   onConfirm,
 }: {
   order: SupabaseOrder;
-  paperSize: ReceiptPaperSize;
-  sections: TicketSectionSelection;
   deliveryFee: string;
-  deliveryPaymentMethod: DeliveryPaymentMethod;
-  isPrinting: boolean;
+  isConfirming: boolean;
   onClose: () => void;
-  onPaperSizeChange: (paperSize: ReceiptPaperSize) => void;
-  onSectionsChange: (sections: TicketSectionSelection) => void;
   onDeliveryFeeChange: (deliveryFee: string) => void;
-  onDeliveryPaymentMethodChange: (deliveryPaymentMethod: DeliveryPaymentMethod) => void;
   onConfirm: () => void;
 }) {
   const isDelivery = order.order_type === "delivery";
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-stone-950/55 px-4 py-8 backdrop-blur-sm">
-      <div className="w-full max-w-md rounded-[2rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.28)]">
+      <div className="flex max-h-full w-full max-w-2xl flex-col rounded-[2rem] border border-stone-200 bg-white p-5 shadow-[0_24px_80px_rgba(28,25,23,0.28)]">
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-rose-500">Pedidos</p>
-            <h3 className="mt-1 text-xl font-bold text-rose-950">Imprimir boleta</h3>
+          <div className="flex items-start gap-3">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+              <CheckIcon />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-rose-500">Pedidos</p>
+              <h3 className="mt-1 text-xl font-bold text-rose-950">Confirmar pedido</h3>
+            </div>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="flex h-11 w-11 items-center justify-center rounded-full bg-stone-100 text-stone-600 transition hover:bg-stone-200"
-            aria-label="Cerrar impresion"
+            aria-label="Cerrar confirmacion"
           >
             <XIcon />
           </button>
         </div>
 
-        <div className="mt-5 rounded-[1.25rem] bg-rose-50/60 p-4">
-          <p className="text-sm font-bold text-rose-950">{order.customer_name || "Sin cliente"}</p>
-          <p className="mt-1 text-xs font-semibold text-rose-600">
-            {orderTypeLabels[order.order_type]} · {formatCurrency(order.total)} · {formatDateTime(order.created_at)}
-          </p>
-          {order.address ? <p className="mt-2 text-xs font-semibold text-rose-700">{order.address}</p> : null}
-        </div>
-
-        {isDelivery ? (
-          <div className="mt-4 space-y-3">
-            <label className="block space-y-2">
-              <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Valor delivery</span>
-              <input
-                value={deliveryFee}
-                onChange={(event) => onDeliveryFeeChange(event.target.value.replace(/\D/g, ""))}
-                inputMode="numeric"
-                className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
-                placeholder="2500"
-              />
-            </label>
-
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Pago delivery</p>
-              <div className="mt-2 grid gap-2 rounded-[1rem] bg-rose-50 p-1 sm:grid-cols-2">
-                {Object.entries(deliveryPaymentMethodLabels).map(([value, label]) => (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => onDeliveryPaymentMethodChange(value as DeliveryPaymentMethod)}
-                    className={`rounded-[0.8rem] px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
-                      deliveryPaymentMethod === value ? "bg-fuchsia-600 text-white" : "text-rose-700"
-                    }`}
-                  >
-                    {label}
-                  </button>
-                ))}
+        <div className="mt-5 min-h-0 overflow-auto pr-1">
+          <div className="rounded-[1.25rem] bg-rose-50/60 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-sm font-bold text-rose-950">{order.customer_name || "Sin cliente"}</p>
+                <p className="mt-1 text-xs font-semibold text-rose-600">
+                  {orderTypeLabels[order.order_type]} · {formatDateTime(order.created_at)}
+                </p>
+                {order.address ? <p className="mt-2 text-xs font-semibold text-rose-700">{order.address}</p> : null}
+              </div>
+              <div className="text-left sm:text-right">
+                <p className="text-xs font-black uppercase text-rose-400">Total</p>
+                <p className="text-lg font-black text-rose-950">{formatCurrency(order.total)}</p>
               </div>
             </div>
           </div>
-        ) : null}
 
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          {printSectionOptions.map((option) => (
-            <label
-              key={option.key}
-              className="flex items-center justify-center gap-2 rounded-full border border-rose-200 bg-rose-50/60 px-3 py-2 text-xs font-bold text-rose-800"
-            >
-              <input
-                type="checkbox"
-                checked={sections[option.key]}
-                onChange={(event) => onSectionsChange({ ...sections, [option.key]: event.target.checked })}
-                className="h-4 w-4 accent-fuchsia-600"
-              />
-              <span>{option.label}</span>
-            </label>
-          ))}
-        </div>
-
-        <div className="mt-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Papel</p>
-          <div className="grid grid-cols-2 gap-2 rounded-full bg-rose-50 p-1">
-            {(["80mm", "56mm"] as ReceiptPaperSize[]).map((nextPaperSize) => (
-              <button
-                key={nextPaperSize}
-                type="button"
-                onClick={() => onPaperSizeChange(nextPaperSize)}
-                className={`rounded-full px-3 py-2 text-xs font-semibold uppercase tracking-[0.12em] ${
-                  paperSize === nextPaperSize ? "bg-fuchsia-600 text-white" : "text-rose-700"
-                }`}
-              >
-                {nextPaperSize}
-              </button>
-            ))}
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <DetailField label="Pago" value={paymentMethodLabels[order.payment_method]} />
+            <DetailField label="Subtotal" value={formatCurrency(order.subtotal)} />
+            <DetailField label="Delivery actual" value={formatCurrency(order.delivery_fee)} />
+            <DetailField label="Items" value={formatNumber(order.total_items)} />
           </div>
+
+          {isDelivery ? (
+            <div className="mt-4 space-y-3">
+              <label className="block space-y-2">
+                <span className="text-xs font-semibold uppercase tracking-[0.16em] text-rose-500">Valor delivery</span>
+                <input
+                  value={deliveryFee}
+                  onChange={(event) => onDeliveryFeeChange(event.target.value.replace(/\D/g, ""))}
+                  inputMode="numeric"
+                  className="w-full rounded-[1rem] border border-rose-200 bg-rose-50/60 px-3 py-2 text-sm text-rose-900 outline-none focus:border-fuchsia-400"
+                  placeholder="2500"
+                />
+              </label>
+            </div>
+          ) : null}
+
+          <div className="mt-5">
+            <h4 className="text-sm font-black uppercase text-rose-500">Productos a enviar a ventas</h4>
+            <div className="mt-3 space-y-3">
+              {order.items.map((item, index) => (
+                <ItemDetail key={String(item.cartId ?? `${order.id}-${index}`)} item={item} index={index} />
+              ))}
+            </div>
+          </div>
+
+          {getExplicitOrderDetail(order) ? (
+            <div className="mt-4 rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3">
+              <p className="text-xs font-black uppercase text-amber-600">Nota del pedido</p>
+              <p className="mt-2 whitespace-pre-wrap text-sm font-semibold text-amber-900">{getExplicitOrderDetail(order)}</p>
+            </div>
+          ) : null}
         </div>
 
-        <div className="mt-5 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <div className="mt-5 flex shrink-0 flex-col-reverse gap-3 border-t border-rose-100 pt-4 sm:flex-row sm:justify-end">
           <button
             type="button"
             onClick={onClose}
             className="rounded-full border border-rose-200 bg-white px-5 py-3 text-sm font-semibold text-rose-700 transition hover:bg-rose-50"
-            disabled={isPrinting}
+            disabled={isConfirming}
           >
             Cancelar
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            disabled={isPrinting}
+            disabled={isConfirming}
             className="inline-flex items-center justify-center gap-2 rounded-full bg-fuchsia-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-300/50 transition hover:bg-fuchsia-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <PrintIcon />
-            {isPrinting ? "Imprimiendo" : "Confirmar impresion"}
+            <CheckIcon />
+            {isConfirming ? "Confirmando" : "Confirmar pedido"}
           </button>
         </div>
       </div>
@@ -409,12 +369,12 @@ function PrintOrderModal({
 
 export function OrdersManagementPage({
   refreshToken = 0,
-  receiptLogoPath,
   onRegisterSale,
+  onOrderConfirmed,
 }: {
   refreshToken?: number;
-  receiptLogoPath: string;
   onRegisterSale: (sale: SaleFromOrderInput) => Promise<boolean>;
+  onOrderConfirmed?: () => void;
 }) {
   const [orders, setOrders] = useState<SupabaseOrder[]>([]);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
@@ -422,12 +382,9 @@ export function OrdersManagementPage({
   const [error, setError] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const [printOrder, setPrintOrder] = useState<SupabaseOrder | null>(null);
-  const [printSections, setPrintSections] = useState<TicketSectionSelection>(defaultPrintSections);
-  const [printPaperSize, setPrintPaperSize] = useState<ReceiptPaperSize>("80mm");
-  const [printDeliveryFee, setPrintDeliveryFee] = useState("2500");
-  const [printDeliveryPaymentMethod, setPrintDeliveryPaymentMethod] = useState<DeliveryPaymentMethod>("efectivo");
-  const [isPrinting, setIsPrinting] = useState(false);
+  const [confirmOrder, setConfirmOrder] = useState<SupabaseOrder | null>(null);
+  const [confirmDeliveryFee, setConfirmDeliveryFee] = useState("2500");
+  const [isConfirming, setIsConfirming] = useState(false);
 
   const selectedOrder = useMemo(
     () => orders.find((order) => order.id === selectedOrderId) ?? orders[0] ?? null,
@@ -471,16 +428,8 @@ export function OrdersManagementPage({
       const order = orders.find((item) => item.id === orderId);
 
       if (status === "confirmed" && order) {
-        if (order.order_type === "delivery") {
-          openPrintModal(order);
-          return;
-        }
-
-        const wasSaleRegistered = await onRegisterSale(buildSaleFromOrder(order));
-
-        if (!wasSaleRegistered) {
-          return;
-        }
+        openConfirmModal(order);
+        return;
       }
 
       const updatedOrder = await updateOrderStatus(orderId, status);
@@ -492,45 +441,32 @@ export function OrdersManagementPage({
     }
   };
 
-  const openPrintModal = (order: SupabaseOrder) => {
-    setPrintOrder(order);
-    setPrintSections(defaultPrintSections);
-    setPrintPaperSize("80mm");
-    setPrintDeliveryFee(order.order_type === "delivery" ? String(getInitialOrderDeliveryFee(order)) : "");
-    setPrintDeliveryPaymentMethod(getDeliveryPaymentMethod(order) ?? "efectivo");
+  const openConfirmModal = (order: SupabaseOrder) => {
+    setConfirmOrder(order);
+    setConfirmDeliveryFee(order.order_type === "delivery" ? String(getInitialOrderDeliveryFee(order)) : "");
   };
 
-  const closePrintModal = () => {
-    if (isPrinting) {
+  const closeConfirmModal = () => {
+    if (isConfirming) {
       return;
     }
 
-    setPrintOrder(null);
-    setPrintSections(defaultPrintSections);
-    setPrintPaperSize("80mm");
-    setPrintDeliveryFee("2500");
-    setPrintDeliveryPaymentMethod("efectivo");
+    setConfirmOrder(null);
+    setConfirmDeliveryFee("2500");
   };
 
-  const handleConfirmPrint = async () => {
-    if (!printOrder || isPrinting) {
+  const handleConfirmOrder = async () => {
+    if (!confirmOrder || isConfirming) {
       return;
     }
 
-    if (!printSections.kitchen && !printSections.receipt && !printSections.thanks) {
-      window.alert("Selecciona al menos una hoja para imprimir.");
-      return;
-    }
-
-    setIsPrinting(true);
+    setIsConfirming(true);
     setError(null);
 
     try {
-      const deliveryType: DeliveryType = printOrder.order_type === "delivery" ? "delivery" : "retiro";
-      const items = mapOrderItemsToSaleItems(printOrder.items);
-      const productTotal = items.reduce((total, item) => total + item.total, 0);
-      const deliveryFee = deliveryType === "delivery" ? Number.parseInt(printDeliveryFee, 10) || 0 : 0;
-      const baseTotal = deliveryType === "delivery" ? Math.max(0, printOrder.total - printOrder.delivery_fee) : printOrder.total;
+      const deliveryType: DeliveryType = confirmOrder.order_type === "delivery" ? "delivery" : "retiro";
+      const deliveryFee = deliveryType === "delivery" ? Number.parseInt(confirmDeliveryFee, 10) || 0 : 0;
+      const baseTotal = deliveryType === "delivery" ? Math.max(0, confirmOrder.total - confirmOrder.delivery_fee) : confirmOrder.total;
       const total = baseTotal + deliveryFee;
 
       if (deliveryType === "delivery" && deliveryFee <= 0) {
@@ -538,29 +474,9 @@ export function OrdersManagementPage({
         return;
       }
 
-      await printTicket(
-        buildTicketData({
-          paperSize: printPaperSize,
-          logoPath: receiptLogoPath,
-          sections: printSections,
-          createdAt: printOrder.created_at,
-          client: printOrder.customer_name,
-          detail: getExplicitOrderDetail(printOrder),
-          paymentLabel: "Pendiente",
-          deliveryType,
-          deliveryAddress: printOrder.address ?? "",
-          deliveryFee,
-          deliveryPaymentMethod: deliveryType === "delivery" ? printDeliveryPaymentMethod : undefined,
-          items,
-          productTotal,
-          total,
-        }),
-      );
-
       const wasSaleRegistered = await onRegisterSale(
-        buildSaleFromOrder(printOrder, {
+        buildSaleFromOrder(confirmOrder, {
           deliveryFee,
-          deliveryPaymentMethod: deliveryType === "delivery" ? printDeliveryPaymentMethod : undefined,
           total,
         }),
       );
@@ -569,19 +485,17 @@ export function OrdersManagementPage({
         return;
       }
 
-      const updatedOrder = await updateOrderStatus(printOrder.id, "confirmed");
+      const updatedOrder = await updateOrderStatus(confirmOrder.id, "confirmed");
       setOrders((current) => current.map((order) => (order.id === updatedOrder.id ? updatedOrder : order)));
       setSelectedOrderId(updatedOrder.id);
-      setPrintOrder(null);
-      setPrintSections(defaultPrintSections);
-      setPrintPaperSize("80mm");
-      setPrintDeliveryFee("2500");
-      setPrintDeliveryPaymentMethod("efectivo");
-    } catch (printError) {
-      setError(printError instanceof Error ? printError.message : "No fue posible imprimir y confirmar el pedido.");
-      window.alert(printError instanceof Error ? printError.message : "No fue posible imprimir y confirmar el pedido.");
+      setConfirmOrder(null);
+      setConfirmDeliveryFee("2500");
+      onOrderConfirmed?.();
+    } catch (confirmError) {
+      setError(confirmError instanceof Error ? confirmError.message : "No fue posible confirmar el pedido.");
+      window.alert(confirmError instanceof Error ? confirmError.message : "No fue posible confirmar el pedido.");
     } finally {
-      setIsPrinting(false);
+      setIsConfirming(false);
     }
   };
 
@@ -642,12 +556,12 @@ export function OrdersManagementPage({
                           type="button"
                           onClick={(event) => {
                             event.stopPropagation();
-                            openPrintModal(order);
+                            openConfirmModal(order);
                           }}
                           className="flex h-10 w-10 items-center justify-center rounded-full border border-rose-200 bg-white text-fuchsia-600 transition hover:border-fuchsia-200 hover:bg-fuchsia-50"
-                          aria-label="Imprimir boleta"
+                          aria-label="Confirmar pedido"
                         >
-                          <PrintIcon />
+                          <CheckIcon />
                         </button>
                       </div>
                     </td>
@@ -745,20 +659,14 @@ export function OrdersManagementPage({
         </aside>
       </div>
 
-      {printOrder ? (
-        <PrintOrderModal
-          order={printOrder}
-          paperSize={printPaperSize}
-          sections={printSections}
-          deliveryFee={printDeliveryFee}
-          deliveryPaymentMethod={printDeliveryPaymentMethod}
-          isPrinting={isPrinting}
-          onClose={closePrintModal}
-          onPaperSizeChange={setPrintPaperSize}
-          onSectionsChange={setPrintSections}
-          onDeliveryFeeChange={setPrintDeliveryFee}
-          onDeliveryPaymentMethodChange={setPrintDeliveryPaymentMethod}
-          onConfirm={handleConfirmPrint}
+      {confirmOrder ? (
+        <ConfirmOrderModal
+          order={confirmOrder}
+          deliveryFee={confirmDeliveryFee}
+          isConfirming={isConfirming}
+          onClose={closeConfirmModal}
+          onDeliveryFeeChange={setConfirmDeliveryFee}
+          onConfirm={handleConfirmOrder}
         />
       ) : null}
     </section>

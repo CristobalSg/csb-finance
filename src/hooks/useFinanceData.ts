@@ -21,7 +21,14 @@ import { getCurrentDate, getLastDays } from "../lib/date";
 import { addRecord, clearAllRecords, deleteRecord, getAllRecords } from "../lib/db";
 import { downloadFile, inventoryRowsToCsv, purchaseRowsToCsv, salesRowsToCsv } from "../lib/format";
 import { createId } from "../lib/id";
-import { getSaleNetTotal } from "../lib/sales";
+import {
+  getSaleBusinessIncomeTotal,
+  getSaleCashIncome,
+  getSaleDebitIncome,
+  getSaleDeliveryCashToDebitMovement,
+  getSaleDeliveryDebitToCashMovement,
+  getSaleNetTotal,
+} from "../lib/sales";
 import type {
   BackupPayload,
   DeliveryPaymentMethod,
@@ -45,13 +52,36 @@ import type {
 import type { InventorySaleInputItem } from "../types/inventory";
 
 const getNumericValue = (value: string) => Number(value || 0);
-const initialBalances = {
+const defaultInitialBalances = {
   cash: 51640,
   debit: 96292,
   controlStartDate: "2026-05-19",
 };
 
-const isWithinControlPeriod = (date: string) => date >= initialBalances.controlStartDate;
+const initialBalancesStorageKey = "csb-initial-balances";
+
+type InitialBalances = typeof defaultInitialBalances;
+
+const loadInitialBalances = (): InitialBalances => {
+  const storedValue = localStorage.getItem(initialBalancesStorageKey);
+
+  if (!storedValue) {
+    return defaultInitialBalances;
+  }
+
+  try {
+    const parsed = JSON.parse(storedValue) as Partial<InitialBalances>;
+    return {
+      cash: Number.isFinite(parsed.cash) ? Number(parsed.cash) : defaultInitialBalances.cash,
+      debit: Number.isFinite(parsed.debit) ? Number(parsed.debit) : defaultInitialBalances.debit,
+      controlStartDate: parsed.controlStartDate || defaultInitialBalances.controlStartDate,
+    };
+  } catch {
+    return defaultInitialBalances;
+  }
+};
+
+const isWithinControlPeriod = (date: string, controlStartDate: string) => date >= controlStartDate;
 
 const isDebitLikePayment = (paymentMethod?: MovementPaymentMethod) =>
   paymentMethod === "debito" || paymentMethod === "transferencia" || paymentMethod === "credito" || paymentMethod === "otro";
@@ -534,6 +564,7 @@ export function useFinanceData() {
   const [editingPurchaseId, setEditingPurchaseId] = useState<string | null>(null);
   const [saleForm, setSaleForm] = useState<SaleFormState>(initialSaleForm);
   const [inventoryForm, setInventoryForm] = useState<InventoryFormState>(initialInventoryForm);
+  const [initialBalances, setInitialBalances] = useState(loadInitialBalances);
 
   useEffect(() => {
     const load = async () => {
@@ -576,13 +607,17 @@ export function useFinanceData() {
   const inventoryPreviewTotal = getNumericValue(inventoryForm.quantity) * getNumericValue(inventoryForm.unitPrice);
 
   const totals = useMemo(() => {
-    const controlledSales = sales.filter((item) => isWithinControlPeriod(item.date));
-    const controlledPurchases = purchases.filter((item) => isWithinControlPeriod(item.date));
+    const controlledSales = sales.filter((item) => isWithinControlPeriod(item.date, initialBalances.controlStartDate));
+    const controlledPurchases = purchases.filter((item) => isWithinControlPeriod(item.date, initialBalances.controlStartDate));
     const allTimeInvestments = purchases.filter((item) => item.movementType === "inversion" || item.entryType === "investment");
     const allTimeExpenseMovements = purchases.filter((item) => item.movementType !== "inversion" && item.entryType !== "investment");
-    const allTimeIncome = sales.reduce((sum, item) => sum + item.total, 0);
-    const allTimeCollectedIncome = sales.filter((item) => item.status !== "pendiente").reduce((sum, item) => sum + item.total, 0);
-    const allTimePendingIncome = sales.filter((item) => item.status === "pendiente").reduce((sum, item) => sum + item.total, 0);
+    const allTimeIncome = sales.reduce((sum, item) => sum + getSaleBusinessIncomeTotal(item), 0);
+    const allTimeCollectedIncome = sales
+      .filter((item) => item.status !== "pendiente")
+      .reduce((sum, item) => sum + getSaleBusinessIncomeTotal(item), 0);
+    const allTimePendingIncome = sales
+      .filter((item) => item.status === "pendiente")
+      .reduce((sum, item) => sum + getSaleBusinessIncomeTotal(item), 0);
     const allTimeExpenses = allTimeExpenseMovements.reduce((sum, item) => sum + (item.amount ?? item.total), 0);
     const allTimeBusinessPurchases = allTimeExpenseMovements
       .filter((item) => item.movementType === "compra" || item.affectsInventory)
@@ -593,19 +628,15 @@ export function useFinanceData() {
     const allTimeInitialInvestment = allTimeInvestments.reduce((sum, item) => sum + (item.amount ?? item.total), 0);
     const allTimeUtility = allTimeIncome - allTimeExpenses;
     const allTimeSimpleProfit = allTimeCollectedIncome - allTimeBusinessPurchases - allTimeOperatingExpenses;
-    const income = controlledSales.reduce((sum, item) => sum + item.total, 0);
-    const collectedIncome = controlledSales.filter((item) => item.status !== "pendiente").reduce((sum, item) => sum + item.total, 0);
-    const cashIncome = controlledSales.reduce((sum, item) => {
-      if (item.status === "efectivo") return sum + item.total;
-      if (item.status === "mixto") return sum + (item.cashAmount ?? 0);
-      return sum;
-    }, 0);
-    const transferIncome = controlledSales.reduce((sum, item) => {
-      if (item.status === "transferencia") return sum + item.total;
-      if (item.status === "mixto") return sum + (item.transferAmount ?? 0);
-      return sum;
-    }, 0);
-    const pendingIncome = controlledSales.filter((item) => item.status === "pendiente").reduce((sum, item) => sum + item.total, 0);
+    const income = controlledSales.reduce((sum, item) => sum + getSaleBusinessIncomeTotal(item), 0);
+    const collectedIncome = controlledSales
+      .filter((item) => item.status !== "pendiente")
+      .reduce((sum, item) => sum + getSaleBusinessIncomeTotal(item), 0);
+    const cashIncome = controlledSales.reduce((sum, item) => sum + getSaleCashIncome(item), 0);
+    const transferIncome = controlledSales.reduce((sum, item) => sum + getSaleDebitIncome(item), 0);
+    const pendingIncome = controlledSales
+      .filter((item) => item.status === "pendiente")
+      .reduce((sum, item) => sum + getSaleBusinessIncomeTotal(item), 0);
     const salesCount = controlledSales.length;
     const investments = controlledPurchases.filter((item) => item.movementType === "inversion" || item.entryType === "investment");
     const expenseMovements = controlledPurchases.filter((item) => item.movementType !== "inversion" && item.entryType !== "investment");
@@ -627,8 +658,10 @@ export function useFinanceData() {
     const debitExpenses = expenseMovements
       .filter((item) => isDebitLikePayment(item.paymentMethod))
       .reduce((sum, item) => sum + (item.amount ?? item.total), 0);
-    const availableCash = initialBalances.cash + cashIncome - cashExpenses;
-    const availableDebit = initialBalances.debit + transferIncome - debitExpenses;
+    const deliveryCashToDebitMovement = controlledSales.reduce((sum, item) => sum + getSaleDeliveryCashToDebitMovement(item), 0);
+    const deliveryDebitToCashMovement = controlledSales.reduce((sum, item) => sum + getSaleDeliveryDebitToCashMovement(item), 0);
+    const availableCash = initialBalances.cash + cashIncome - cashExpenses - deliveryCashToDebitMovement + deliveryDebitToCashMovement;
+    const availableDebit = initialBalances.debit + transferIncome - debitExpenses + deliveryCashToDebitMovement - deliveryDebitToCashMovement;
     const availableTotal = availableCash + availableDebit;
 
     const inventoryValue = inventory.reduce((sum, item) => sum + item.total, 0);
@@ -814,6 +847,8 @@ export function useFinanceData() {
       allTimeMovementsCount: purchases.length,
       cashExpenses,
       debitExpenses,
+      deliveryCashToDebitMovement,
+      deliveryDebitToCashMovement,
       availableCash,
       availableDebit,
       availableTotal,
@@ -845,14 +880,14 @@ export function useFinanceData() {
       net: availableTotal,
       expectedCash: availableTotal,
     };
-  }, [inventory, purchases, sales]);
+  }, [initialBalances.cash, initialBalances.controlStartDate, initialBalances.debit, inventory, purchases, sales]);
 
   const chartData = useMemo(() => {
     const lastDays = getLastDays(7);
 
     return lastDays.map((date) => ({
       date,
-      income: sales.filter((item) => item.date === date).reduce((sum, item) => sum + item.total, 0),
+      income: sales.filter((item) => item.date === date).reduce((sum, item) => sum + getSaleBusinessIncomeTotal(item), 0),
       expense: purchases
         .filter((item) => item.date === date && item.movementType !== "inversion" && item.entryType !== "investment")
         .reduce((sum, item) => sum + (item.amount ?? item.total), 0),
@@ -1162,6 +1197,7 @@ export function useFinanceData() {
     deliveryFee,
     deliveryPaymentMethod,
     discountAmount,
+    extraAmount,
     fulfillmentTime,
     orderItems,
     quantity,
@@ -1188,8 +1224,9 @@ export function useFinanceData() {
       deliveryType,
       deliveryAddress: deliveryAddress?.trim(),
       deliveryFee,
-      deliveryPaymentMethod: deliveryType === "delivery" ? deliveryPaymentMethod : undefined,
+      deliveryPaymentMethod: deliveryType === "delivery" ? deliveryPaymentMethod ?? existingSale?.deliveryPaymentMethod : undefined,
       discountAmount,
+      extraAmount,
       fulfillmentTime: fulfillmentTime?.trim(),
       quantity,
       productName,
@@ -1232,7 +1269,11 @@ export function useFinanceData() {
     }
   };
 
-  const updateSaleStatus = async (id: string, status: SaleStatus, paymentAmounts?: { cashAmount?: number; transferAmount?: number }) => {
+  const updateSaleStatus = async (
+    id: string,
+    status: SaleStatus,
+    paymentAmounts?: { cashAmount?: number; transferAmount?: number; deliveryPaymentMethod?: DeliveryPaymentMethod },
+  ) => {
     const sale = sales.find((item) => item.id === id);
 
     if (!sale) {
@@ -1245,6 +1286,8 @@ export function useFinanceData() {
       status,
       cashAmount: status === "mixto" ? paymentAmounts?.cashAmount ?? 0 : undefined,
       transferAmount: status === "mixto" ? paymentAmounts?.transferAmount ?? 0 : undefined,
+      deliveryPaymentMethod:
+        sale.deliveryType === "delivery" ? paymentAmounts?.deliveryPaymentMethod ?? sale.deliveryPaymentMethod : undefined,
     };
 
     try {
@@ -1260,7 +1303,14 @@ export function useFinanceData() {
     id: string,
     updates: Pick<
       Sale,
-      "client" | "detail" | "deliveryType" | "deliveryAddress" | "deliveryFee" | "deliveryPaymentMethod" | "fulfillmentTime"
+      | "client"
+      | "detail"
+      | "deliveryType"
+      | "deliveryAddress"
+      | "deliveryFee"
+      | "discountAmount"
+      | "extraAmount"
+      | "fulfillmentTime"
     >,
   ) => {
     const sale = sales.find((item) => item.id === id);
@@ -1270,14 +1320,24 @@ export function useFinanceData() {
       return;
     }
 
+    const productTotal =
+      sale.orderItems?.reduce((total, item) => total + item.total, 0) ??
+      Math.max(0, sale.total - (sale.deliveryType === "delivery" ? sale.deliveryFee ?? 0 : 0) + (sale.discountAmount ?? 0) - (sale.extraAmount ?? 0));
+    const deliveryFee = updates.deliveryType === "delivery" ? updates.deliveryFee ?? 0 : 0;
+    const discountAmount = Math.min(updates.discountAmount ?? 0, productTotal);
+    const extraAmount = updates.extraAmount ?? 0;
+
     const updatedSale: Sale = {
       ...sale,
       client: updates.client.trim().toUpperCase(),
       detail: updates.detail.trim().toUpperCase(),
+      total: Math.max(0, productTotal - discountAmount + extraAmount + deliveryFee),
       deliveryType: updates.deliveryType,
       deliveryAddress: updates.deliveryAddress?.trim(),
-      deliveryFee: updates.deliveryFee,
-      deliveryPaymentMethod: updates.deliveryType === "delivery" ? updates.deliveryPaymentMethod : undefined,
+      deliveryFee,
+      deliveryPaymentMethod: updates.deliveryType === "delivery" ? sale.deliveryPaymentMethod : undefined,
+      discountAmount,
+      extraAmount,
       fulfillmentTime: updates.fulfillmentTime?.trim(),
     };
 
@@ -1324,6 +1384,7 @@ export function useFinanceData() {
   const exportBackup = () => {
     const payload: BackupPayload = {
       exportedAt: new Date().toISOString(),
+      initialBalances,
       purchases,
       sales,
       inventory,
@@ -1465,6 +1526,7 @@ export function useFinanceData() {
       const deliveryFeeIndex = header.indexOf("DELIVERY");
       const deliveryPaymentMethodIndex = header.indexOf("PAGO_DELIVERY");
       const discountIndex = header.indexOf("DESCUENTO");
+      const addedAmountIndex = header.indexOf("AGREGADO");
       const totalIndex = header.indexOf("TOTAL");
       const collectedTotalIndex = header.indexOf("TOTAL_COBRADO");
       const cashAmountIndex = header.indexOf("PAGO_EFECTIVO");
@@ -1509,6 +1571,7 @@ export function useFinanceData() {
         const collectedTotal = collectedTotalIndex === -1 ? 0 : getOptionalCurrencyValue(parts[collectedTotalIndex] ?? "");
         const deliveryFee = deliveryFeeIndex === -1 ? 0 : getOptionalCurrencyValue(parts[deliveryFeeIndex] ?? "");
         const discountAmount = discountIndex === -1 ? 0 : getOptionalCurrencyValue(parts[discountIndex] ?? "");
+        const extraAmount = addedAmountIndex === -1 ? 0 : getOptionalCurrencyValue(parts[addedAmountIndex] ?? "");
         const cashAmount = cashAmountIndex === -1 ? undefined : getOptionalCurrencyValue(parts[cashAmountIndex] ?? "");
         const transferAmount = transferAmountIndex === -1 ? undefined : getOptionalCurrencyValue(parts[transferAmountIndex] ?? "");
         const total = collectedTotal > 0 ? collectedTotal : netTotal + deliveryFee;
@@ -1539,6 +1602,7 @@ export function useFinanceData() {
               ? parseDeliveryPaymentMethod(parts[deliveryPaymentMethodIndex] ?? "")
               : undefined,
           discountAmount,
+          extraAmount,
           fulfillmentTime: fulfillmentTimeIndex === -1 ? "" : (parts[fulfillmentTimeIndex] ?? "").trim(),
           orderItems,
         };
@@ -1583,6 +1647,18 @@ export function useFinanceData() {
     setPurchaseForm(initialPurchaseForm());
   };
 
+  const updateInitialBalances = (nextBalances: InitialBalances) => {
+    const normalizedBalances = {
+      cash: Math.max(0, nextBalances.cash),
+      debit: Math.max(0, nextBalances.debit),
+      controlStartDate: nextBalances.controlStartDate || defaultInitialBalances.controlStartDate,
+    };
+
+    localStorage.setItem(initialBalancesStorageKey, JSON.stringify(normalizedBalances));
+    setInitialBalances(normalizedBalances);
+    saveFeedback("success", "Saldos iniciales actualizados.");
+  };
+
   return {
     loading,
     error,
@@ -1601,6 +1677,8 @@ export function useFinanceData() {
     purchasePreviewTotal,
     inventoryPreviewTotal,
     totals,
+    initialBalances,
+    updateInitialBalances,
     chartData,
     handleDelete,
     handlePurchaseSubmit,

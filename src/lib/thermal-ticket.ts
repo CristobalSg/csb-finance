@@ -13,6 +13,7 @@ export type TicketItem = {
   qty: number;
   price?: number;
   notes?: string[];
+  hideQuantity?: boolean;
 };
 
 export type TicketTotalLine = {
@@ -58,7 +59,15 @@ export type TicketSection =
         cash: number;
         debit: number;
         total: number;
+        adjustment?: number;
+        reverseAdjustment?: number;
       };
+      dailyBreakdown?: {
+        label: string;
+        cash: number;
+        card: number;
+        total: number;
+      }[];
       sales: TicketItem[];
     }
   | {
@@ -104,6 +113,7 @@ export type TicketOrderInput = {
   deliveryFee?: number;
   deliveryPaymentMethod?: DeliveryPaymentMethod;
   discountAmount?: number;
+  extraAmount?: number;
   fulfillmentTime?: string;
   items: SaleOrderItem[];
   productTotal: number;
@@ -121,19 +131,29 @@ export type DailyReportTicketInput = {
   cardTotal: number;
   pendingTotal: number;
   deliveryTotal: number;
+  deliveryPayments?: TicketTotalLine[];
   totalCollected: number;
   totalSales: number;
   cashSnapshot?: {
     cash: number;
     debit: number;
     total: number;
+    adjustment?: number;
+    reverseAdjustment?: number;
   };
+  dailyBreakdown?: {
+    label: string;
+    cash: number;
+    card: number;
+    total: number;
+  }[];
   sales?: {
     time: string;
     client: string;
     total: number;
     status: string;
     deliveryFee?: number;
+    deliveryPaymentMethod?: DeliveryPaymentMethod;
   }[];
   productStats?: {
     name: string;
@@ -261,6 +281,7 @@ export const buildTicketData = (order: TicketOrderInput): TicketPrintJob => {
   const deliveryType = order.deliveryType ?? "retiro";
   const deliveryFee = deliveryType === "delivery" ? order.deliveryFee ?? 0 : 0;
   const discountAmount = order.discountAmount ?? 0;
+  const extraAmount = order.extraAmount ?? 0;
   const meta = [
     order.client?.trim() ? `Nombre: ${order.client.trim()}` : "",
     order.fulfillmentTime?.trim() ? `Hora entrega: ${order.fulfillmentTime.trim()}` : "",
@@ -309,8 +330,9 @@ export const buildTicketData = (order: TicketOrderInput): TicketPrintJob => {
         notes: getItemNotes(item),
       })),
       totals: [
-        deliveryType === "delivery" || discountAmount > 0 ? { label: "Subtotal", value: order.productTotal } : undefined,
+        deliveryType === "delivery" || discountAmount > 0 || extraAmount > 0 ? { label: "Subtotal", value: order.productTotal } : undefined,
         discountAmount > 0 ? { label: "Descuento", value: discountAmount, negative: true } : undefined,
+        extraAmount > 0 ? { label: "Agregado", value: extraAmount } : undefined,
         deliveryType === "delivery" ? { label: "Delivery", value: deliveryFee } : undefined,
       ].filter((line): line is TicketTotalLine => Boolean(line)),
       total: order.total,
@@ -352,21 +374,32 @@ export const buildDailyReportTicketData = (report: DailyReportTicketInput): Tick
           { label: "Debito / transf.", value: report.cardTotal },
           { label: "Pendiente", value: report.pendingTotal },
           { label: "Delivery cobrado", value: report.deliveryTotal },
+          ...(report.deliveryPayments ?? []),
         ],
         totalCollected: report.totalCollected,
         totalSales: report.totalSales,
         cashSnapshot: report.cashSnapshot,
+        dailyBreakdown: report.dailyBreakdown,
         sales:
           report.productStats?.map((product) => ({
             name: product.name,
             qty: product.quantity,
             price: product.total,
+            hideQuantity: product.quantity <= 1,
           })) ??
           (report.sales ?? []).map((sale) => ({
             name: `${sale.time} - ${sale.client || "Sin cliente"}`,
             qty: 1,
             price: sale.total,
-            notes: [sale.status, sale.deliveryFee ? `Delivery ${formatTicketCurrency(sale.deliveryFee)}` : ""].filter(Boolean),
+            hideQuantity: true,
+            notes: [
+              sale.status,
+              sale.deliveryFee
+                ? `Delivery ${formatTicketCurrency(sale.deliveryFee)}${
+                    sale.deliveryPaymentMethod ? ` (${deliveryPaymentMethodLabels[sale.deliveryPaymentMethod]})` : ""
+                  }`
+                : "",
+            ].filter(Boolean),
           })),
       },
     ],
