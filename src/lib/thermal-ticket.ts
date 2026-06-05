@@ -1,6 +1,7 @@
 import { familyComboDescriptions } from "../data/order-menu";
 import { deliveryPaymentMethodLabels } from "../constants/app";
 import type { DeliveryPaymentMethod, DeliveryType, SaleOrderItem } from "../types";
+import { getFamilyBurgerNotes } from "./order-notes";
 
 export type ReceiptPaperSize = "80mm" | "56mm";
 
@@ -198,6 +199,7 @@ export type ThanksTestTicketInput = {
 };
 
 const defaultBusinessName = "Ceese Burger's";
+const boletaTagline = "No son solo hamburguesas.";
 
 const formatTicketCurrency = (value: number) =>
   new Intl.NumberFormat("es-CL", {
@@ -205,11 +207,6 @@ const formatTicketCurrency = (value: number) =>
     currency: "CLP",
     maximumFractionDigits: 0,
   }).format(value);
-
-const getFamilyBurgerNotes = (item: Pick<SaleOrderItem, "familyBurgers">) =>
-  item.familyBurgers
-    ?.filter((burger) => burger.removedIngredients?.length)
-    .map((burger) => `${burger.label}: sin ${burger.removedIngredients?.join(", ")}`) ?? [];
 
 const isFamilyCombo = (name: string) => Boolean(familyComboDescriptions[name]);
 
@@ -222,7 +219,7 @@ const getItemNotes = (item: SaleOrderItem) =>
     item.drink ? `Bebida: ${item.drink}` : "",
     shouldShowSauce(item) ? `Salsa: ${item.sauce}` : "",
     item.removedIngredients?.length ? `Sin: ${item.removedIngredients.join(", ")}` : "",
-    ...getFamilyBurgerNotes(item),
+    ...getFamilyBurgerNotes(item.familyBurgers),
   ].filter(Boolean);
 
 const getKitchenGroups = (items: SaleOrderItem[]) => {
@@ -269,8 +266,11 @@ const getKitchenSummary = (items: SaleOrderItem[]) => {
   }
 
   return [
-    fries > 0 ? `Papas: ${fries}` : "",
+    fries > 0 || drinks.size > 0 || sauces.size > 0 ? "RESUMEN AGREGADOS" : "",
+    fries > 0 ? `Papitas: ${fries}` : "",
+    drinks.size > 0 ? "Bebidas:" : "",
     ...Array.from(drinks.entries()).map(([drink, quantity]) => `${quantity} x ${drink}`),
+    sauces.size > 0 ? "Salsas:" : "",
     ...Array.from(sauces.entries()).map(([sauce, quantity]) => `${quantity} x ${sauce}`),
   ].filter(Boolean);
 };
@@ -289,9 +289,6 @@ export const buildTicketData = (order: TicketOrderInput): TicketPrintJob => {
     `Entrega: ${deliveryType === "delivery" ? "Delivery" : "Retiro"}`,
     deliveryType === "delivery" && order.deliveryAddress?.trim() ? `Direccion: ${order.deliveryAddress.trim()}` : "",
     deliveryType === "delivery" ? `Valor delivery: ${formatTicketCurrency(deliveryFee)}` : "",
-    deliveryType === "delivery" && order.deliveryPaymentMethod
-      ? `Pago delivery: ${deliveryPaymentMethodLabels[order.deliveryPaymentMethod]}`
-      : "",
     order.detail?.trim() ? `Detalle: ${order.detail.trim()}` : "",
   ].filter(Boolean);
   const sections: TicketSection[] = [];
@@ -320,7 +317,7 @@ export const buildTicketData = (order: TicketOrderInput): TicketPrintJob => {
     sections.push({
       type: "boleta",
       title: "Boleta",
-      businessName,
+      businessName: boletaTagline,
       date,
       meta,
       items: order.items.map((item) => ({

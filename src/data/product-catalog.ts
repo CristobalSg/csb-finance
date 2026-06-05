@@ -20,6 +20,7 @@ export const productCatalog: ProductCatalogItem[] = [
   { name: "Cs-Romp I", cost: 1567, price: 3190 },
   { name: "Papitas 180g", cost: 669, price: 1300 },
   { name: "Bebida", cost: 522, price: 1000 },
+  { name: "Coca-Cola Zero", cost: 522, price: 1000 },
   { name: "Aderezo + Pote", cost: 101, price: 500 },
   { name: "Nugget x3", cost: 500, price: 1490 },
   { name: "Papero: SMOKE HOUSE", cost: 2440, price: 4590 },

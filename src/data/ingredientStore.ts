@@ -24,6 +24,7 @@ const automaticIngredientNames = new Set([
   "Bebida",
   "Sprite",
   "Coca-Cola",
+  "Coca-Cola Zero",
   "Fanta",
   "Nuggets",
 ]);
@@ -80,7 +81,7 @@ const getInitialStockMinimum = (name: string, controlType: IngredientControlType
     return 10;
   }
 
-  if (name === "Bebida" || name === "Sprite" || name === "Coca-Cola" || name === "Fanta") {
+  if (name === "Bebida" || name === "Sprite" || name === "Coca-Cola" || name === "Coca-Cola Zero" || name === "Fanta") {
     return 6;
   }
 
@@ -110,7 +111,7 @@ const normalizeState = (state: IngredientStoreState): IngredientStoreState => {
     .sort((first, second) => first.nombre.localeCompare(second.nombre, "es"));
   const ingredientIds = new Set(ingredientes.map((ingredient) => ingredient.id));
   const productIds = new Set(menuProducts.map((product) => product.id));
-  const familyComboDrinkIds = new Set(["Bebida", "Sprite", "Coca-Cola", "Fanta"].map(createStableId));
+  const familyComboDrinkIds = new Set(["Bebida", "Sprite", "Coca-Cola", "Coca-Cola Zero", "Fanta"].map(createStableId));
 
   return {
     ingredientes,
@@ -198,7 +199,7 @@ const shouldApplyRelationToSaleItem = (
     return false;
   }
 
-  if (saleItem.drink && relation.tipo === "reemplazable" && ["Sprite", "Coca-Cola", "Fanta"].includes(ingredient.nombre)) {
+  if (saleItem.drink && relation.tipo === "reemplazable" && ["Sprite", "Coca-Cola", "Coca-Cola Zero", "Fanta"].includes(ingredient.nombre)) {
     return createStableId(saleItem.drink) === createStableId(ingredient.nombre);
   }
 

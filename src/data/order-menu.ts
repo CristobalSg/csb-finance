@@ -28,7 +28,7 @@ export type OrderMenuCategory = {
   label: string;
 };
 
-export const comboDrinkOptions = ["Sprite", "Coca-Cola", "Fanta"];
+export const comboDrinkOptions = ["Sprite", "Coca-Cola", "Coca-Cola Zero", "Fanta"];
 
 export const sideSauceOptions = ["Sin salsa", "Mayonesa", "Ketchup", "Mostaza", "BBQ", "Chick Fill A"];
 

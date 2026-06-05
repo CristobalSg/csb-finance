@@ -8,6 +8,7 @@ import { deliveryPaymentMethodLabels, saleStatusLabels, shellCardClass } from ".
 import { familyComboDescriptions } from "../data/order-menu";
 import { formatShortDate } from "../lib/date";
 import { formatCurrency, formatNumber } from "../lib/format";
+import { getFamilyBurgerNotes } from "../lib/order-notes";
 import {
   getSaleBusinessIncomeTotal,
   getSaleCashIncome,
@@ -69,11 +70,6 @@ type SaleEditForm = {
 const isFamilyCombo = (name: string) => Boolean(familyComboDescriptions[name]);
 
 const shouldShowSauce = (item: Pick<SaleOrderItem, "name" | "sauce">) => Boolean(item.sauce && !isFamilyCombo(item.name));
-
-const getFamilyBurgerNotes = (item: Pick<SaleOrderItem, "familyBurgers">) =>
-  item.familyBurgers
-    ?.filter((burger) => burger.removedIngredients?.length)
-    .map((burger) => `${burger.label}: sin ${burger.removedIngredients?.join(", ")}`) ?? [];
 
 const getDateInputValue = (date = new Date()) => {
   const year = date.getFullYear();
@@ -258,7 +254,7 @@ const getKitchenGroups = (items: SaleOrderItem[]) => {
 
   for (const item of items) {
     const removedIngredients = [...(item.removedIngredients ?? [])].sort((a, b) => a.localeCompare(b));
-    const familyBurgerNotes = getFamilyBurgerNotes(item);
+    const familyBurgerNotes = getFamilyBurgerNotes(item.familyBurgers);
     const itemSauce = shouldShowSauce(item) ? item.sauce : undefined;
     const key = [item.name, item.drink ?? "", itemSauce ?? "", removedIngredients.join("|"), familyBurgerNotes.join("|")].join("::");
     const existing = groups.get(key);
@@ -876,7 +872,8 @@ export function SalesSection({
               <>
                 <div className="my-3 border-t border-dashed border-black" />
                 <div className="receipt-cut space-y-2 text-xs font-bold">
-                  {kitchenSummary.fries > 0 ? <p>Papas: {kitchenSummary.fries}</p> : null}
+                  <p className="font-black uppercase">Resumen agregados</p>
+                  {kitchenSummary.fries > 0 ? <p>Papitas: {kitchenSummary.fries}</p> : null}
                   {kitchenSummary.drinks.length > 0 ? (
                     <div>
                       <p className="font-black uppercase">Bebidas</p>
@@ -907,6 +904,7 @@ export function SalesSection({
           <div className="receipt-paper">
             <div className="text-center">
               <img src={`/${receiptLogoPath}`} alt="Ceese Burger's" className="receipt-logo" />
+              <p className="mt-1 text-[11px] font-bold uppercase">No son solo hamburguesas.</p>
               <p className="mt-1 text-xs font-bold">{new Date(receiptSale.createdAt).toLocaleString("es-CL")}</p>
             </div>
 
@@ -921,9 +919,6 @@ export function SalesSection({
                 <p>Direccion: {receiptSale.deliveryAddress.trim()}</p>
               ) : null}
               {receiptSale.deliveryType === "delivery" ? <p>Valor delivery: {formatCurrency(receiptSale.deliveryFee ?? 0)}</p> : null}
-              {receiptSale.deliveryType === "delivery" && receiptSale.deliveryPaymentMethod ? (
-                <p>Pago delivery: {deliveryPaymentMethodLabels[receiptSale.deliveryPaymentMethod]}</p>
-              ) : null}
               {receiptSale.detail.trim() ? <p>Detalle: {receiptSale.detail.trim()}</p> : null}
             </div>
 
@@ -932,10 +927,11 @@ export function SalesSection({
             <div className="space-y-3">
               {receiptItems.map((item, index) => {
                 const notes = [
+                  familyComboDescriptions[item.name] ? `Incluye: ${familyComboDescriptions[item.name]}` : "",
                   item.drink ? `Bebida: ${item.drink}` : "",
                   shouldShowSauce(item) ? `Salsa: ${item.sauce}` : "",
                   item.removedIngredients?.length ? `Sin: ${item.removedIngredients.join(", ")}` : "",
-                  ...getFamilyBurgerNotes(item),
+                  ...getFamilyBurgerNotes(item.familyBurgers),
                 ].filter(Boolean);
 
                 return (
@@ -1848,13 +1844,14 @@ export function SalesSection({
                                       <p className="font-bold text-fuchsia-700">{formatCurrency(item.total)}</p>
                                     </div>
                                     <p className="mt-1 text-xs text-rose-500">{formatCurrency(item.unitPrice)} c/u</p>
-                                    {item.drink || shouldShowSauce(item) || item.removedIngredients?.length ? (
+                                    {item.drink || shouldShowSauce(item) || item.removedIngredients?.length || item.familyBurgers?.length ? (
                                       <p className="mt-2 text-xs leading-5 text-rose-700/80">
                                         {[
+                                          familyComboDescriptions[item.name] ? `Incluye: ${familyComboDescriptions[item.name]}` : "",
                                           item.drink ? `Bebida: ${item.drink}` : "",
                                           shouldShowSauce(item) ? `Salsa: ${item.sauce}` : "",
                                           item.removedIngredients?.length ? `Sin: ${item.removedIngredients.join(", ")}` : "",
-                                          ...getFamilyBurgerNotes(item),
+                                          ...getFamilyBurgerNotes(item.familyBurgers),
                                         ]
                                           .filter(Boolean)
                                           .join(" · ")}

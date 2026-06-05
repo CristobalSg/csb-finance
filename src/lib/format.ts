@@ -1,5 +1,7 @@
 import { deliveryPaymentMethodLabels, movementCategoryLabels, movementPaymentMethodLabels, movementTypeLabels } from "../constants/app";
+import { familyComboDescriptions } from "../data/order-menu";
 import type { InventoryItem, Purchase, Sale } from "../types";
+import { getFamilyBurgerNotes } from "./order-notes";
 import { getSaleDeliveryFee, getSaleDiscountAmount, getSaleExtraAmount, getSaleNetTotal } from "./sales";
 
 export const formatCurrency = (value: number) =>
@@ -78,12 +80,11 @@ export const salesRowsToCsv = (rows: Sale[]) => {
       row.orderItems
         ?.map((item) => {
           const notes = [
+            familyComboDescriptions[item.name] ? `Incluye: ${familyComboDescriptions[item.name]}` : "",
             item.drink ? `Bebida: ${item.drink}` : "",
             item.sauce ? `Salsa: ${item.sauce}` : "",
             item.removedIngredients?.length ? `Sin: ${item.removedIngredients.join(", ")}` : "",
-            ...(item.familyBurgers
-              ?.filter((burger) => burger.removedIngredients?.length)
-              .map((burger) => `${burger.label}: sin ${burger.removedIngredients?.join(", ")}`) ?? []),
+            ...getFamilyBurgerNotes(item.familyBurgers),
           ]
             .filter(Boolean)
             .join(" · ");

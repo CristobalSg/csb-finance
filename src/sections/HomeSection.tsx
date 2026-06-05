@@ -11,6 +11,7 @@ import {
   type OrderMenuItem,
 } from "../data/order-menu";
 import { formatCurrency } from "../lib/format";
+import { getFamilyBurgerNotes } from "../lib/order-notes";
 import { printTicket } from "../lib/thermal-printer";
 import { buildTicketData, type ReceiptPaperSize } from "../lib/thermal-ticket";
 import type { DeliveryType, Sale, SaleFromOrderInput, SaleOrderItem } from "../types";
@@ -111,6 +112,21 @@ export function HomeSection({
   const activeCategory = orderMenuCategories.find((category) => category.id === activeMenuCategory) ?? orderMenuCategories[0];
   const activeCategoryItems = orderMenuItems.filter((item) => item.category === activeCategory.id);
   const productModalHasOptions = Boolean(productModalItem?.drinkOptions || productModalItem?.sauceOptions);
+  const productModalHasIngredientOptions = Boolean(
+    productModalItem?.removableIngredients ||
+      productModalCustomizations.some((customization) => customization.familyBurgers?.length),
+  );
+  const productModalStepLabels = [
+    "Cantidad",
+    ...(productModalHasOptions ? ["Opciones"] : []),
+    ...(productModalHasIngredientOptions ? ["Quitar"] : []),
+  ];
+  const isProductModalFinalStep =
+    productModalStep === 0
+      ? !productModalHasOptions && !productModalHasIngredientOptions
+      : productModalStep === 1
+        ? !productModalHasIngredientOptions
+        : true;
 
   const handleDeliveryTypeChange = (nextDeliveryType: DeliveryType) => {
     setDeliveryType(nextDeliveryType);
@@ -229,7 +245,7 @@ export function HomeSection({
     setProductModalStep(0);
   };
 
-  const shouldAddDirectly = (item: OrderMenuItem) => item.category === "sides" || item.category === "sauces";
+  const shouldAddDirectly = (item: OrderMenuItem) => item.category === "sauces";
 
   const handleProductClick = (item: OrderMenuItem) => {
     if (shouldAddDirectly(item)) {
@@ -365,13 +381,12 @@ export function HomeSection({
     setCartItems((current) => current.filter((item) => item.id !== id));
   };
 
-  const getFamilyBurgerNotes = (customization: Pick<CartItemCustomization, "familyBurgers">) =>
-    customization.familyBurgers
-      ?.filter((burger) => burger.removedIngredients.length > 0)
-      .map((burger) => `${burger.label}: sin ${burger.removedIngredients.join(", ")}`) ?? [];
-
-  const getCustomizationNotes = (customization: CartItemCustomization) => {
+  const getCustomizationNotes = (customization: CartItemCustomization, productName?: string) => {
     const notes = [];
+
+    if (productName && familyComboDescriptions[productName]) {
+      notes.push(`Incluye: ${familyComboDescriptions[productName]}`);
+    }
 
     if (customization.drink) {
       notes.push(`Bebida: ${customization.drink}`);
@@ -385,7 +400,7 @@ export function HomeSection({
       notes.push(`Sin: ${customization.removedIngredients.join(", ")}`);
     }
 
-    notes.push(...getFamilyBurgerNotes(customization));
+    notes.push(...getFamilyBurgerNotes(customization.familyBurgers));
 
     return notes;
   };
@@ -413,7 +428,7 @@ export function HomeSection({
 
     for (const item of receiptItems) {
       const removedIngredients = [...item.customization.removedIngredients].sort((a, b) => a.localeCompare(b));
-      const familyBurgerNotes = getFamilyBurgerNotes(item.customization);
+      const familyBurgerNotes = getFamilyBurgerNotes(item.customization.familyBurgers);
       const key = [
         item.name,
         item.customization.drink ?? "",
@@ -526,7 +541,8 @@ export function HomeSection({
             <>
               <div className="my-3 border-t border-dashed border-black" />
               <div className="receipt-cut space-y-2 text-xs font-bold">
-                {kitchenSummary.fries > 0 ? <p>Papas: {kitchenSummary.fries}</p> : null}
+                <p className="font-black uppercase">Resumen agregados</p>
+                {kitchenSummary.fries > 0 ? <p>Papitas: {kitchenSummary.fries}</p> : null}
                 {kitchenSummary.drinks.length > 0 ? (
                   <div>
                     <p className="font-black uppercase">Bebidas</p>
@@ -557,6 +573,7 @@ export function HomeSection({
         <div className={`receipt-paper ${preview ? "mx-auto lg:mx-0" : ""}`}>
           <div className="text-center">
             <img src={`/${receiptLogoPath}`} alt="Ceese Burger's" className="receipt-logo" />
+            <p className="mt-1 text-[11px] font-bold uppercase">No son solo hamburguesas.</p>
             <p className="mt-1 text-xs font-bold">{new Date().toLocaleString("es-CL")}</p>
           </div>
 
@@ -578,7 +595,7 @@ export function HomeSection({
 
           <div className="space-y-3">
             {receiptItems.map((item) => {
-              const notes = getCustomizationNotes(item.customization);
+              const notes = getCustomizationNotes(item.customization, item.name);
 
               return (
                 <div key={`${item.id}-${item.customization.id}`} className="receipt-cut">
@@ -873,7 +890,7 @@ export function HomeSection({
 
                     <div className="mt-4 space-y-2 border-t border-rose-100 pt-3">
                       {item.customizations.slice(0, 3).map((customization, index) => {
-                        const notes = getCustomizationNotes(customization);
+                        const notes = getCustomizationNotes(customization, item.name);
 
                         return (
                           <div key={customization.id} className="rounded-[1rem] bg-rose-50/60 px-3 py-2 text-xs font-semibold text-rose-700">
@@ -914,18 +931,22 @@ export function HomeSection({
             </div>
 
             <div className="mb-4 flex items-center justify-center gap-2">
-              {["Cantidad", "Opciones", "Quitar"].map((label, index) => (
-                <button
-                  key={label}
-                  type="button"
-                  onClick={() => setProductModalStep(index)}
-                  className={`h-3 w-3 rounded-full transition ${
-                    productModalStep >= index ? "bg-fuchsia-600" : "bg-rose-100"
-                  }`}
-                  aria-label={label}
-                  title={label}
-                />
-              ))}
+              {productModalStepLabels.map((label) => {
+                const stepIndex = label === "Cantidad" ? 0 : label === "Opciones" ? 1 : 2;
+
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setProductModalStep(stepIndex)}
+                    className={`h-3 w-3 rounded-full transition ${
+                      productModalStep >= stepIndex ? "bg-fuchsia-600" : "bg-rose-100"
+                    }`}
+                    aria-label={label}
+                    title={label}
+                  />
+                );
+              })}
             </div>
 
             <div className="min-h-0 flex-1 space-y-4 overflow-auto pr-1">
@@ -1097,10 +1118,10 @@ export function HomeSection({
               </button>
               <button
                 type="button"
-                onClick={productModalStep === 2 ? confirmProductModal : goToNextProductModalStep}
+                onClick={isProductModalFinalStep ? confirmProductModal : goToNextProductModalStep}
                 className="inline-flex flex-1 items-center justify-center rounded-full bg-fuchsia-600 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-fuchsia-300/50 transition hover:bg-fuchsia-700"
               >
-                {productModalStep === 2 ? `Agregar ${formatCurrency(productModalItem.price * productModalQuantity)}` : "Siguiente"}
+                {isProductModalFinalStep ? `Agregar ${formatCurrency(productModalItem.price * productModalQuantity)}` : "Siguiente"}
               </button>
             </div>
           </div>

@@ -89,6 +89,28 @@ const flattenSelectionLabels = (value: unknown): string[] => {
   });
 };
 
+const normalizeNoteText = (value: string) =>
+  value
+    .replace(/\*/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const isPlaceholderOrderDetailNote = (value: string) => {
+  const normalized = normalizeNoteText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[:.]+$/g, "")
+    .trim();
+
+  return normalized === "detalle del pedido";
+};
+
+const sanitizeOrderNote = (value: string) => {
+  const normalized = normalizeNoteText(value);
+  return normalized && !isPlaceholderOrderDetailNote(normalized) ? normalized : "";
+};
+
 const getUnitRemovals = (value: unknown): SaleOrderFamilyBurger[] => {
   if (!Array.isArray(value)) {
     return [];
@@ -107,17 +129,19 @@ const getItemNotes = (item: SupabaseOrderItem) => {
   const rawNotes = item.notes;
 
   if (Array.isArray(rawNotes)) {
-    return asStringArray(rawNotes).join(", ");
+    return asStringArray(rawNotes).map(sanitizeOrderNote).filter(Boolean).join(", ");
   }
 
-  return typeof rawNotes === "string" ? rawNotes : "";
+  return typeof rawNotes === "string" ? sanitizeOrderNote(rawNotes) : "";
 };
 
-const mapOrderItemsToSaleItems = (items: SupabaseOrderItem[]): SaleOrderItem[] =>
+const mapOrderItemsToSaleItems = (items: SupabaseOrderItem[], orderDetail = ""): SaleOrderItem[] =>
   items.map((item) => {
-    const selections = flattenSelectionLabels(item.selections);
-    const unitSelections = flattenSelectionLabels(item.unitSelections);
+    const selections = flattenSelectionLabels(item.selections).map(sanitizeOrderNote).filter(Boolean);
+    const unitSelections = flattenSelectionLabels(item.unitSelections).map(sanitizeOrderNote).filter(Boolean);
     const notes = [getItemNotes(item), ...selections, ...unitSelections].filter(Boolean).join(" · ");
+    const shouldDropDuplicatedDetail =
+      notes && orderDetail && normalizeNoteText(notes).toLowerCase() === normalizeNoteText(orderDetail).toLowerCase();
 
     return {
       name: item.title ?? item.productId ?? "Producto sin nombre",
@@ -126,7 +150,7 @@ const mapOrderItemsToSaleItems = (items: SupabaseOrderItem[]): SaleOrderItem[] =
       total: Number(item.lineTotal ?? 0),
       removedIngredients: asStringArray(item.removals),
       familyBurgers: getUnitRemovals(item.unitRemovals),
-      notes,
+      notes: shouldDropDuplicatedDetail ? "" : notes,
     };
   });
 
@@ -168,7 +192,8 @@ const buildSaleFromOrder = (
   order: SupabaseOrder,
   options: { deliveryFee?: number; total?: number } = {},
 ): SaleFromOrderInput => {
-  const items = mapOrderItemsToSaleItems(order.items);
+  const detail = getExplicitOrderDetail(order);
+  const items = mapOrderItemsToSaleItems(order.items, detail);
   const deliveryType: DeliveryType = order.order_type === "delivery" ? "delivery" : "retiro";
   const productName = items.map((item) => `${item.quantity}x ${item.name}`).join(" | ");
   const deliveryFee = deliveryType === "delivery" ? options.deliveryFee ?? order.delivery_fee : 0;
@@ -178,7 +203,7 @@ const buildSaleFromOrder = (
     createdAt: order.created_at,
     date: getLocalDateFromIso(order.created_at),
     client: order.customer_name,
-    detail: getExplicitOrderDetail(order),
+    detail,
     total: options.total ?? order.total,
     status: "pendiente",
     deliveryType,
